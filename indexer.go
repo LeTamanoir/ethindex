@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 )
 
@@ -33,8 +32,8 @@ type Indexer struct {
 	checkpointInterval uint64
 	logger             *slog.Logger
 
-	http    *ethclient.Client
-	ws      *ethclient.Client
+	http    RPCClient
+	ws      RPCClient
 	cache   Cache
 	handler Handler
 

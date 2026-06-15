@@ -3,7 +3,9 @@ package ethindex
 import (
 	"context"
 	"errors"
+	"math/big"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 )
@@ -57,4 +59,11 @@ type Cache interface {
 
 	// Delete removes the entry stored under name from the cache.
 	Delete(name string) error
+}
+
+// RPCClient defines the methods the indexer requires from an Ethereum RPC client.
+type RPCClient interface {
+	HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error)
+	FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
+	SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error)
 }

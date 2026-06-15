@@ -2,8 +2,6 @@ package ethindex
 
 import (
 	"log/slog"
-
-	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 type ConfigureHandler struct{ i *Indexer }
@@ -30,7 +28,7 @@ func (c ConfigureHandler) WithHandler(h Handler) ConfigureClients {
 }
 
 // WithClients sets the Ethereum RPC clients.
-func (c ConfigureClients) WithClients(http *ethclient.Client, ws *ethclient.Client) ConfigureCache {
+func (c ConfigureClients) WithClients(http RPCClient, ws RPCClient) ConfigureCache {
 	c.i.http = http
 	c.i.ws = ws
 	return ConfigureCache(c)
