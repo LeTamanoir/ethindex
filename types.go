@@ -12,13 +12,15 @@ import (
 var ErrReorg = errors.New("chain reorg detected")
 
 // Filter defines the criteria used to select Ethereum logs during indexing.
-// FromBlock specifies the starting block number for the backfill phase.
-// Addresses restricts log collection to the given contract addresses.
-// Topics filters logs by their indexed event topics.
 type Filter struct {
+	// FromBlock specifies the starting block number for the backfill phase.
 	FromBlock uint64
+
+	// Addresses restricts log collection to the given contract addresses.
 	Addresses []common.Address
-	Topics    [][]common.Hash
+
+	// Topics filters logs by their indexed event topics.
+	Topics [][]common.Hash
 }
 
 // Handler is implemented by the caller to define indexing logic for a specific
@@ -42,9 +44,9 @@ type Handler interface {
 	Process(ctx context.Context, log *types.Log) error
 }
 
-// Cache manages persistence of the indexer's checkpoints. It is used to save
-// and restore the indexer state across restarts so that backfilling can resume
-// from the last known position rather than from scratch.
+// Cache manages persistence for the indexer. It is used to save and restore
+// the indexer state across restarts so that backfilling can resume from the
+// last known position, as well as to cache expensive RPC calls.
 type Cache interface {
 	// Load retrieves the value stored under name and unmarshals it into out.
 	// It returns ok = false if no value exists for that name.
