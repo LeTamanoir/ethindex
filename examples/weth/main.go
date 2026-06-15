@@ -51,11 +51,11 @@ func (e *WETH) Filter() ethindex.Filter {
 	}
 }
 
-func (e *WETH) Restore(data []byte) error {
+func (e *WETH) Restore(_ context.Context, data []byte) error {
 	return gob.NewDecoder(bytes.NewReader(data)).Decode(e)
 }
 
-func (e *WETH) Snapshot() ([]byte, error) {
+func (e *WETH) Snapshot(_ context.Context) ([]byte, error) {
 	var b bytes.Buffer
 	if err := gob.NewEncoder(&b).Encode(e); err != nil {
 		return nil, err
@@ -63,10 +63,10 @@ func (e *WETH) Snapshot() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func (e *WETH) Process(_ context.Context, log *types.Log) error {
+func (e *WETH) Process(_ context.Context, log types.Log) error {
 	switch log.Topics[0] {
 	case transferEventID:
-		t, err := erc20.UnpackTransferEvent(log)
+		t, err := erc20.UnpackTransferEvent(&log)
 		if err != nil {
 			return err
 		}
@@ -80,7 +80,7 @@ func (e *WETH) Process(_ context.Context, log *types.Log) error {
 			e.Balances[t.To] = *new(big.Int).Add(&toBalance, t.Value)
 		}
 	case approvalEventID:
-		a, err := erc20.UnpackApprovalEvent(log)
+		a, err := erc20.UnpackApprovalEvent(&log)
 		if err != nil {
 			return err
 		}

@@ -41,7 +41,7 @@ type Handler interface {
 
 	// Process is called for each matching log in block order. It receives the
 	// log and a context that is cancelled when the indexer is shutting down.
-	Process(context.Context, *types.Log) error
+	Process(context.Context, types.Log) error
 }
 
 // Cache manages persistence for the indexer. It is used to save and restore

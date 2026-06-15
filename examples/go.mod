@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	github.com/ethereum/go-ethereum v1.17.3
 	github.com/joho/godotenv v1.5.1
-	github.com/letamanoir/ethindex v0.0.0-20260615184135-ea04d5ccb36d
+	github.com/letamanoir/ethindex v0.0.0-20260615194915-a54c79b73f8d
 )
 
 replace github.com/letamanoir/ethindex => ../

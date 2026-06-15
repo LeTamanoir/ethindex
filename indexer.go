@@ -197,7 +197,7 @@ func (idx *Indexer) processRange(ctx context.Context, from, to uint64) error {
 		}
 
 		for i := range logs {
-			if err := idx.handler.Process(ctx, &logs[i]); err != nil {
+			if err := idx.handler.Process(ctx, logs[i]); err != nil {
 				return err
 			}
 		}
