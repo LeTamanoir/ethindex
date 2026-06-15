@@ -6,90 +6,78 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-func defaultIndexer() *Indexer {
-	return &Indexer{
+type configureHandler struct{ i *Indexer }
+type configureClients struct{ i *Indexer }
+type configureCache struct{ i *Indexer }
+type configureOptions struct{ i *Indexer }
+
+// New begins the configuration chain for an Indexer.
+func New() configureHandler {
+	return configureHandler{&Indexer{
 		newHeadsBuffer:     128,
 		maxBlockRange:      10_000,
 		maxConcurrentCalls: 100,
 		checkpointInterval: 64,
 		logger:             slog.Default(),
 		stopCh:             make(chan struct{}),
-	}
+	}}
 }
 
-type configHandler struct{ i *Indexer }
-type configClients struct{ i *Indexer }
-type configCache struct{ i *Indexer }
-type configOptional struct{ i *Indexer }
-
-func Configure() configHandler {
-	return configHandler{defaultIndexer()}
-}
-
-func (c configHandler) WithHandler(h Handler) configClients {
+// WithHandler sets the event handler for the indexer.
+func (c configureHandler) WithHandler(h Handler) configureClients {
 	c.i.handler = h
-	return configClients(c)
+	return configureClients(c)
 }
 
-func (c configClients) WithClients(http *ethclient.Client, ws *ethclient.Client) configCache {
+// WithClients sets the Ethereum RPC clients.
+func (c configureClients) WithClients(http *ethclient.Client, ws *ethclient.Client) configureCache {
 	c.i.http = http
 	c.i.ws = ws
-	return configCache(c)
+	return configureCache(c)
 }
 
-func (cc configCache) WithCache(c Cache) configOptional {
+// WithCache sets the caching layer.
+func (cc configureCache) WithCache(c Cache) configureOptions {
 	cc.i.cache = c
-	return configOptional(cc)
+	return configureOptions(cc)
 }
 
-func (c configOptional) Build() *Indexer {
+// Build finalizes the configuration and returns the fully constructed Indexer.
+func (c configureOptions) Build() *Indexer {
 	return c.i
 }
 
-// WithRetryFunc determines whether an error encountered during block processing
-// or RPC calls should trigger a reconnect/retry. It receives the underlying
-// error and the current consecutive attempt count. If it returns true, the
-// indexer enters StateReconnect. If false, the indexer halts and returns the error.
-func (c configOptional) WithRetryFunc(f func(err error, attempt int) bool) configOptional {
+// WithRetryFunc sets the retry policy for RPC calls and block processing.
+// Returning true triggers a reconnect; returning false halts the indexer.
+func (c configureOptions) WithRetryFunc(f func(err error, attempt int) bool) configureOptions {
 	c.i.retryFunc = f
 	return c
 }
 
-// WithNewHeadsBuffer defines the channel buffer size for the live block header
-// subscription. A larger buffer prevents the RPC subscription from dropping
-// due to slow consumers if the indexer takes a few seconds to process a block.
-//
+// WithNewHeadsBuffer sets the capacity of the live block subscription channel.
 // Default is 128.
-func (c configOptional) WithNewHeadsBuffer(n int) configOptional {
+func (c configureOptions) WithNewHeadsBuffer(n int) configureOptions {
 	c.i.newHeadsBuffer = n
 	return c
 }
 
-// WithMaxBlockRange sets the maximum number of blocks to request in a single
-// eth_getLogs call during the backfill phase. Most RPC providers impose
-// strict limits on range queries.
-//
+// WithMaxBlockRange sets the maximum block span per backfill RPC call.
 // Default is 10,000.
-func (c configOptional) WithMaxBlockRange(r uint64) configOptional {
+func (c configureOptions) WithMaxBlockRange(r uint64) configureOptions {
 	c.i.maxBlockRange = r
 	return c
 }
 
-// WithCheckpointInterval defines how frequently (in blocks) the indexer writes
-// its state to the database.
-//
-// Slots and blocks are produced at the same 12s interval.
-// 2 epochs = 64 slots, which is the Ethereum finality window (~12m48s).
-// Default is 64.
-func (c configOptional) WithCheckpointInterval(interval uint64) configOptional {
+// WithCheckpointInterval sets how often (in blocks) the indexer saves state.
+// Default is 64 (~2 epochs).
+func (c configureOptions) WithCheckpointInterval(interval uint64) configureOptions {
 	c.i.checkpointInterval = interval
 	return c
 }
 
-// WithLogger sets a custom structured logger for the indexer.
-//
+// WithLogger sets the structured logger.
 // Default is slog.Default().
-func (c configOptional) WithLogger(l *slog.Logger) configOptional {
+func (c configureOptions) WithLogger(l *slog.Logger) configureOptions {
 	c.i.logger = l
 	return c
 }

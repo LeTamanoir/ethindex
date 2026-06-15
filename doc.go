@@ -1,23 +1,11 @@
-/*
-Package ethindex provides a resilient, state-machine driven Ethereum event indexer.
-
-It is designed to simplify the process of backfilling historical logs and seamlessly
-transitioning to live block subscription, while automatically handling chain
-reorganizations and websocket disconnects.
-
-# Features
-
-  - Automatic retry and reconnect logic for transient RPC errors
-  - Built-in checkpointing and state pruning
-  - Graceful handling of Ethereum chain reorganizations
-  - Separation of HTTP (backfilling) and WS (live) clients to avoid read limits
-
-# Getting Started
-
-To use the indexer, you must implement the [Handler] and [Cache] interfaces.
-The Handler dictates which logs to filter and how to process them, while the Cache
-manages saving the indexer's checkpoints to disk.
-
-See the examples directory for a full implementation.
-*/
+// Package ethindex implements a state-machine driven Ethereum log indexer.
+//
+// The indexer automatically manages the transition from backfilling historical
+// events via HTTP to streaming live blocks via WebSockets. It includes built-in
+// handling for transient RPC errors, websocket disconnects, and chain reorganizations.
+//
+// To use ethindex, callers must provide two interfaces: a [Handler] and a [Cache].
+// The Handler dictates log filtering, event processing, and state snapshotting.
+// The Cache is used to persist these state checkpoints across restarts and to
+// cache expensive RPC calls.
 package ethindex
