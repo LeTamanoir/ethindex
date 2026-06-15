@@ -51,11 +51,11 @@ func (e *WETH) Filter() ethindex.Filter {
 	}
 }
 
-func (e *WETH) UnmarshalBinary(data []byte) error {
+func (e *WETH) Restore(data []byte) error {
 	return gob.NewDecoder(bytes.NewReader(data)).Decode(e)
 }
 
-func (e *WETH) MarshalBinary() ([]byte, error) {
+func (e *WETH) Snapshot() ([]byte, error) {
 	var b bytes.Buffer
 	if err := gob.NewEncoder(&b).Encode(e); err != nil {
 		return nil, err

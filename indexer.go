@@ -2,7 +2,6 @@ package ethindex
 
 import (
 	"context"
-	"encoding"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -24,9 +23,8 @@ type Client interface {
 }
 
 type Handler interface {
-	encoding.BinaryMarshaler
-	encoding.BinaryUnmarshaler
-
+	Snapshot() ([]byte, error)
+	Restore([]byte) error
 	Filter() Filter
 	Process(ctx context.Context, log *types.Log) error
 }
@@ -271,7 +269,7 @@ func (idx *Indexer) restore() error {
 		return nil
 	}
 
-	if err := idx.handler.UnmarshalBinary(cp.State); err != nil {
+	if err := idx.handler.Restore(cp.State); err != nil {
 		return err
 	}
 
@@ -350,7 +348,7 @@ func (idx *Indexer) prune(ctx context.Context) error {
 }
 
 func (idx *Indexer) checkpoint() error {
-	state, err := idx.handler.MarshalBinary()
+	state, err := idx.handler.Snapshot()
 	if err != nil {
 		return err
 	}
