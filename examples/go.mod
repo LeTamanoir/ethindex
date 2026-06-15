@@ -8,11 +8,12 @@ require (
 	github.com/letamanoir/ethindex v0.0.0-20260615184135-ea04d5ccb36d
 )
 
+replace github.com/letamanoir/ethindex => ../
+
 require (
 	github.com/DataDog/zstd v1.4.5 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20260607022201-88e0521b82d3 // indirect
-	github.com/StackExchange/wmi v1.2.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.24.5 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

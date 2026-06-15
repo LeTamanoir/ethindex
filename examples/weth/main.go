@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/gob"
 	"encoding/hex"
-	"log"
+	"fmt"
 	"log/slog"
 	"math/big"
 	"os"
@@ -94,7 +94,7 @@ func (e *WETH) Process(_ context.Context, log *types.Log) error {
 	return nil
 }
 
-func main() {
+func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -105,29 +105,29 @@ func main() {
 	if v := os.Getenv("ETH_JWT_SECRET"); v != "" {
 		var secret [32]byte
 		if _, err := hex.Decode(secret[:], []byte(v)); err != nil {
-			log.Fatalf("Failed to decode secret: %s", err)
+			return fmt.Errorf("failed to decode secret: %w", err)
 		}
 		options = append(options, rpc.WithHTTPAuth(node.NewJWTAuth(secret)))
 	}
 
 	httpURL := os.Getenv("ETH_HTTP_URL")
 	if httpURL == "" {
-		log.Fatal("Missing ETH_HTTP_URL")
+		return fmt.Errorf("missing ETH_HTTP_URL")
 	}
 
 	wsURL := os.Getenv("ETH_WS_URL")
 	if wsURL == "" {
-		log.Fatal("Missing ETH_WS_URL")
+		return fmt.Errorf("missing ETH_WS_URL")
 	}
 
 	httpRPC, err := rpc.DialOptions(ctx, httpURL, options...)
 	if err != nil {
-		log.Fatalf("HTTP dial failed: %s", err)
+		return err
 	}
 
 	wsRPC, err := rpc.DialOptions(ctx, wsURL, options...)
 	if err != nil {
-		log.Fatalf("WS dial failed: %s", err)
+		return err
 	}
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})))
@@ -139,14 +139,18 @@ func main() {
 
 	cache := ethindex.NewFileCache("./indexer_data")
 
-	idx := ethindex.Configure().
+	idx := ethindex.New().
 		WithHandler(weth).
 		WithClients(httpC, wsC).
 		WithCache(cache).
 		Build()
 
-	if err := idx.Run(ctx); err != nil {
-		slog.Error("Indexer failed", "error", err)
+	return idx.Run(ctx)
+}
+
+func main() {
+	if err := run(); err != nil {
+		slog.Error("Indexer error", "error", err)
 		os.Exit(1)
 	}
 }
