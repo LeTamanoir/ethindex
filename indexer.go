@@ -38,9 +38,8 @@ type Indexer struct {
 	cache   Cache
 	handler Handler
 
-	head   *blockHeader
-	isLive bool
-
+	head        *blockHeader
+	isLive      bool
 	checkpoints []blockHeader
 
 	stopCh chan struct{}
@@ -79,10 +78,11 @@ func (idx *Indexer) Stop() {
 
 func (idx *Indexer) run(ctx context.Context) error {
 	idx.isLive = false
+	idx.checkpoints = nil
 
 	idx.logger.Info("starting indexer")
 
-	if err := idx.restore(); err != nil {
+	if err := idx.restore(ctx); err != nil {
 		return err
 	}
 
@@ -113,7 +113,9 @@ func (idx *Indexer) live(ctx context.Context) error {
 			num := h.Number.Uint64()
 			hash := h.Hash()
 
-			// check for reorgs only when we follow the head
+			// Only check for reorgs when appending the strictly sequential next block.
+			// This safely bypasses the check during the brief transition from the
+			// backfilled state to the live network head.
 			if idx.head.Number == num-1 && idx.head.Hash != h.ParentHash {
 				idx.logger.Warn("reorg detected", "old", idx.head.Number, "new", num)
 
@@ -127,7 +129,7 @@ func (idx *Indexer) live(ctx context.Context) error {
 			idx.head = &blockHeader{Number: num, Hash: hash}
 
 			if num%idx.checkpointInterval == 0 {
-				if err := idx.checkpoint(); err != nil {
+				if err := idx.checkpoint(ctx); err != nil {
 					return err
 				}
 				if err := idx.prune(ctx); err != nil {
@@ -156,10 +158,14 @@ func (idx *Indexer) backfill(ctx context.Context) error {
 	}
 	to := final.Number.Uint64()
 
-	idx.logger.Info("starting backfill", "from", from, "to", to)
+	if from <= to {
+		idx.logger.Info("starting backfill", "from", from, "to", to)
 
-	if err := idx.processRange(ctx, from, to); err != nil {
-		return err
+		if err := idx.processRange(ctx, from, to); err != nil {
+			return err
+		}
+	} else {
+		idx.logger.Info("backfill skipped, already up to date with finalized block")
 	}
 
 	idx.head = &blockHeader{
@@ -236,7 +242,7 @@ func (idx *Indexer) fetchLogs(ctx context.Context, from, to uint64) ([]types.Log
 	return logs, nil
 }
 
-func (idx *Indexer) restore() error {
+func (idx *Indexer) restore(ctx context.Context) error {
 	var cp checkpoint
 	ok, err := idx.cache.Load(finalizedCheckpointKey(), &cp)
 	if err != nil {
@@ -247,7 +253,7 @@ func (idx *Indexer) restore() error {
 		return nil
 	}
 
-	if err := idx.handler.Restore(cp.State); err != nil {
+	if err := idx.handler.Restore(ctx, cp.State); err != nil {
 		return err
 	}
 
@@ -282,7 +288,7 @@ func (idx *Indexer) prune(ctx context.Context) error {
 		}
 
 		if !found {
-			return errors.New("no finalized checkpoint found")
+			return nil
 		}
 	}
 
@@ -325,8 +331,8 @@ func (idx *Indexer) prune(ctx context.Context) error {
 	return nil
 }
 
-func (idx *Indexer) checkpoint() error {
-	state, err := idx.handler.Snapshot()
+func (idx *Indexer) checkpoint(ctx context.Context) error {
+	state, err := idx.handler.Snapshot(ctx)
 	if err != nil {
 		return err
 	}

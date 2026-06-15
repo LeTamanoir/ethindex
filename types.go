@@ -29,11 +29,11 @@ type Filter struct {
 type Handler interface {
 	// Snapshot serializes the current handler state into a byte slice so it
 	// can be persisted as a checkpoint by the indexer.
-	Snapshot() ([]byte, error)
+	Snapshot(context.Context) ([]byte, error)
 
 	// Restore deserializes a previously saved snapshot and restores the
 	// handler state to the checkpointed point in time.
-	Restore([]byte) error
+	Restore(context.Context, []byte) error
 
 	// Filter returns the log filter criteria that the indexer uses to
 	// select relevant events from the chain.
@@ -41,7 +41,7 @@ type Handler interface {
 
 	// Process is called for each matching log in block order. It receives the
 	// log and a context that is cancelled when the indexer is shutting down.
-	Process(ctx context.Context, log *types.Log) error
+	Process(context.Context, *types.Log) error
 }
 
 // Cache manages persistence for the indexer. It is used to save and restore
