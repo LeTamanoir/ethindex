@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -24,7 +26,6 @@ import (
 )
 
 var (
-	erc20       = contracts.NewERC20()
 	erc20ABI, _ = contracts.ERC20MetaData.ParseABI()
 
 	transferEventID = erc20ABI.Events["Transfer"].ID
@@ -66,30 +67,34 @@ func (e *WETH) Snapshot(_ context.Context) ([]byte, error) {
 func (e *WETH) Process(_ context.Context, log types.Log) error {
 	switch log.Topics[0] {
 	case transferEventID:
-		t, err := erc20.UnpackTransferEvent(&log)
-		if err != nil {
-			return err
+		if len(log.Topics) < 3 {
+			return fmt.Errorf("invalid Transfer event topics")
 		}
+		from := common.BytesToAddress(log.Topics[1].Bytes())
+		to := common.BytesToAddress(log.Topics[2].Bytes())
+		value := new(big.Int).SetBytes(log.Data)
 
-		if t.From != (common.Address{}) {
-			fromBalance := e.Balances[t.From]
-			e.Balances[t.From] = *new(big.Int).Sub(&fromBalance, t.Value)
+		if from != (common.Address{}) {
+			fromBalance := e.Balances[from]
+			e.Balances[from] = *new(big.Int).Sub(&fromBalance, value)
 		}
-		if t.To != (common.Address{}) {
-			toBalance := e.Balances[t.To]
-			e.Balances[t.To] = *new(big.Int).Add(&toBalance, t.Value)
+		if to != (common.Address{}) {
+			toBalance := e.Balances[to]
+			e.Balances[to] = *new(big.Int).Add(&toBalance, value)
 		}
 	case approvalEventID:
-		a, err := erc20.UnpackApprovalEvent(&log)
-		if err != nil {
-			return err
+		if len(log.Topics) < 3 {
+			return fmt.Errorf("invalid Approval event topics")
 		}
+		owner := common.BytesToAddress(log.Topics[1].Bytes())
+		spender := common.BytesToAddress(log.Topics[2].Bytes())
+		value := new(big.Int).SetBytes(log.Data)
 
-		al, ok := e.Allowances[a.Owner]
+		al, ok := e.Allowances[owner]
 		if !ok {
 			al = make(map[common.Address]big.Int)
 		}
-		al[a.Spender] = *a.Value
+		al[spender] = *value
 	}
 	return nil
 }
@@ -143,7 +148,15 @@ func run() error {
 		WithHandler(weth).
 		WithClients(httpC, wsC).
 		WithCache(cache).
+		WithMaxBlockRange(100_000).
 		Build()
+
+	go func() {
+		slog.Info("starting pprof server on :6060")
+		if err := http.ListenAndServe("localhost:6060", nil); err != nil {
+			slog.Error("pprof server failed", "error", err)
+		}
+	}()
 
 	return idx.Run(ctx)
 }

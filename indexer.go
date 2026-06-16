@@ -9,20 +9,9 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rpc"
 )
-
-type blockHeader struct {
-	Number uint64
-	Hash   common.Hash
-}
-
-type checkpoint struct {
-	Header blockHeader
-	State  []byte
-}
 
 type Indexer struct {
 	retryFunc          func(err error, attempt int) bool
@@ -195,6 +184,10 @@ func (idx *Indexer) processRange(ctx context.Context, from, to uint64) error {
 			return err
 		}
 
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		for i := range logs {
 			if err := idx.handler.Process(ctx, logs[i]); err != nil {
 				return err
@@ -221,7 +214,7 @@ func (idx *Indexer) fetchLogs(ctx context.Context, from, to uint64) ([]types.Log
 
 	key := filterQueryKey(query)
 
-	var cached []types.Log
+	var cached Logs
 	ok, err := idx.cache.Load(key, &cached)
 	if err != nil {
 		return nil, err
@@ -234,7 +227,7 @@ func (idx *Indexer) fetchLogs(ctx context.Context, from, to uint64) ([]types.Log
 	if err != nil {
 		return nil, err
 	}
-	if err := idx.cache.Save(key, logs); err != nil {
+	if err := idx.cache.Save(key, Logs(logs)); err != nil {
 		return nil, err
 	}
 
