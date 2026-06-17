@@ -61,8 +61,7 @@ func (ls logs) GobEncode() ([]byte, error) {
 
 	var err error
 	for _, l := range ls {
-		b, err = l.AppendBinary(b)
-		if err != nil {
+		if b, err = l.AppendBinary(b); err != nil {
 			return nil, err
 		}
 	}
@@ -130,57 +129,47 @@ func (l log) AppendBinary(b []byte) ([]byte, error) {
 }
 
 func (l *log) UnmarshalBinary(b []byte) (err error) {
-	b, err = decodeAddress(b, &l.Address)
-	if err != nil {
+	if b, err = decodeAddress(b, &l.Address); err != nil {
 		return
 	}
 
 	var topicsLen hexutil.Uint64
-	b, err = decodeUint64(b, &topicsLen)
-	if err != nil {
+	if b, err = decodeUint64(b, &topicsLen); err != nil {
 		return
 	}
 
 	l.Topics = make([]common.Hash, topicsLen)
 	for i := range l.Topics {
-		b, err = decodeHash(b, &l.Topics[i])
-		if err != nil {
+		if b, err = decodeHash(b, &l.Topics[i]); err != nil {
 			return
 		}
 	}
 
-	b, err = decodeBytes(b, &l.Data)
-	if err != nil {
+	if b, err = decodeBytes(b, &l.Data); err != nil {
 		return
 	}
 
-	b, err = decodeUint64(b, &l.BlockNumber)
-	if err != nil {
+	if b, err = decodeUint64(b, &l.BlockNumber); err != nil {
 		return
 	}
 
-	b, err = decodeHash(b, &l.TxHash)
-	if err != nil {
+	if b, err = decodeHash(b, &l.TxHash); err != nil {
 		return
 	}
 
-	b, err = decodeUint(b, &l.TxIndex)
-	if err != nil {
+	if b, err = decodeUint(b, &l.TxIndex); err != nil {
 		return
 	}
 
-	b, err = decodeHash(b, &l.BlockHash)
-	if err != nil {
+	if b, err = decodeHash(b, &l.BlockHash); err != nil {
 		return
 	}
 
-	b, err = decodeUint64(b, &l.BlockTimestamp)
-	if err != nil {
+	if b, err = decodeUint64(b, &l.BlockTimestamp); err != nil {
 		return
 	}
 
-	b, err = decodeUint(b, &l.Index)
-	if err != nil {
+	if b, err = decodeUint(b, &l.Index); err != nil {
 		return
 	}
 

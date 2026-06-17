@@ -35,13 +35,11 @@ func (c checkpoint) GobEncode() ([]byte, error) {
 }
 
 func (c *checkpoint) GobDecode(b []byte) (err error) {
-	b, err = decodeUint64(b, (*hexutil.Uint64)(&c.Header.Number))
-	if err != nil {
+	if b, err = decodeUint64(b, (*hexutil.Uint64)(&c.Header.Number)); err != nil {
 		return
 	}
 
-	b, err = decodeHash(b, &c.Header.Hash)
-	if err != nil {
+	if b, err = decodeHash(b, &c.Header.Hash); err != nil {
 		return
 	}
 
