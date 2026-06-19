@@ -19,8 +19,6 @@ import (
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/joho/godotenv"
-	// "github.com/pkg/profile"
-
 	"github.com/letamanoir/ethindex"
 	"github.com/letamanoir/ethindex/examples/contracts"
 )
@@ -64,37 +62,39 @@ func (e *WETH) Snapshot(_ context.Context) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func (e *WETH) Process(_ context.Context, log types.Log) error {
-	switch log.Topics[0] {
-	case transferEventID:
-		if len(log.Topics) < 3 {
-			return fmt.Errorf("invalid Transfer event topics")
-		}
-		from := common.BytesToAddress(log.Topics[1].Bytes())
-		to := common.BytesToAddress(log.Topics[2].Bytes())
-		value := new(big.Int).SetBytes(log.Data)
+func (e *WETH) Process(_ context.Context, logs []types.Log) error {
+	for _, log := range logs {
+		switch log.Topics[0] {
+		case transferEventID:
+			if len(log.Topics) < 3 {
+				return fmt.Errorf("invalid Transfer event topics")
+			}
+			from := common.BytesToAddress(log.Topics[1].Bytes())
+			to := common.BytesToAddress(log.Topics[2].Bytes())
+			value := new(big.Int).SetBytes(log.Data)
 
-		if from != (common.Address{}) {
-			fromBalance := e.Balances[from]
-			e.Balances[from] = *new(big.Int).Sub(&fromBalance, value)
-		}
-		if to != (common.Address{}) {
-			toBalance := e.Balances[to]
-			e.Balances[to] = *new(big.Int).Add(&toBalance, value)
-		}
-	case approvalEventID:
-		if len(log.Topics) < 3 {
-			return fmt.Errorf("invalid Approval event topics")
-		}
-		owner := common.BytesToAddress(log.Topics[1].Bytes())
-		spender := common.BytesToAddress(log.Topics[2].Bytes())
-		value := new(big.Int).SetBytes(log.Data)
+			if from != (common.Address{}) {
+				fromBalance := e.Balances[from]
+				e.Balances[from] = *new(big.Int).Sub(&fromBalance, value)
+			}
+			if to != (common.Address{}) {
+				toBalance := e.Balances[to]
+				e.Balances[to] = *new(big.Int).Add(&toBalance, value)
+			}
+		case approvalEventID:
+			if len(log.Topics) < 3 {
+				return fmt.Errorf("invalid Approval event topics")
+			}
+			owner := common.BytesToAddress(log.Topics[1].Bytes())
+			spender := common.BytesToAddress(log.Topics[2].Bytes())
+			value := new(big.Int).SetBytes(log.Data)
 
-		al, ok := e.Allowances[owner]
-		if !ok {
-			al = make(map[common.Address]big.Int)
+			al, ok := e.Allowances[owner]
+			if !ok {
+				al = make(map[common.Address]big.Int)
+			}
+			al[spender] = *value
 		}
-		al[spender] = *value
 	}
 	return nil
 }

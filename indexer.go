@@ -194,10 +194,8 @@ func (idx *Indexer) processRange(ctx context.Context, from, to uint64) error {
 		}
 
 		processStart := time.Now()
-		for i := range logs {
-			if err := idx.handler.Process(ctx, logs[i].toGethLog()); err != nil {
-				return fmt.Errorf("process log at block %d index %d tx %s: %w", logs[i].BlockNumber, logs[i].Index, logs[i].TxHash, err)
-			}
+		if err := idx.handler.Process(ctx, logs); err != nil {
+			return err
 		}
 		processDur := time.Since(processStart)
 
@@ -230,10 +228,10 @@ func (idx *Indexer) filterQuery(from, to uint64) map[string]any {
 	return arg
 }
 
-func (idx *Indexer) fastGetLogs(ctx context.Context, from, to uint64) (logs, error) {
+func (idx *Indexer) fastGetLogs(ctx context.Context, from, to uint64) ([]types.Log, error) {
 	query := idx.filterQuery(from, to)
 
-	var logs logs
+	var logs []types.Log
 	if err := idx.http.CallContext(ctx, &logs, "eth_getLogs", query); err != nil {
 		return nil, err
 	}
@@ -241,7 +239,7 @@ func (idx *Indexer) fastGetLogs(ctx context.Context, from, to uint64) (logs, err
 	return logs, nil
 }
 
-func (idx *Indexer) fetchLogs(ctx context.Context, from, to uint64) (logs, error) {
+func (idx *Indexer) fetchLogs(ctx context.Context, from, to uint64) ([]types.Log, error) {
 	if idx.isLive {
 		return idx.fastGetLogs(ctx, from, to)
 	}
@@ -252,7 +250,7 @@ func (idx *Indexer) fetchLogs(ctx context.Context, from, to uint64) (logs, error
 	}
 	key := hexutil.Encode(crypto.Keccak256(q))
 
-	var cached logs
+	var cached []types.Log
 	ok, err := idx.cache.Load(key, &cached)
 	if err != nil {
 		return nil, err
