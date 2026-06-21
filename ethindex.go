@@ -79,10 +79,16 @@ func (idx *Indexer) Init(ctx context.Context) error {
 	return nil
 }
 
-// Process ingests a new head
+// Process ingests a new head.
+//
+// If the header does not extend the current chain (its parent hash does not
+// match the known head), a reorg has occurred. Process handles it internally
+// by restoring handler state from the last finalized checkpoint and
+// re-indexing the divergent range up to the new head. The caller therefore
+// only sees errors for genuine failures, not for reorgs.
 func (idx *Indexer) Process(ctx context.Context, h *types.Header) error {
 	if !idx.initialized {
-		panic("Process called an non initialized indexer")
+		panic("Process called on non-initialized indexer")
 	}
 
 	hn := h.Number.Uint64()
@@ -91,7 +97,15 @@ func (idx *Indexer) Process(ctx context.Context, h *types.Header) error {
 	// This safely bypasses the check during the brief transition from the
 	// backfilled state to the live network head.
 	if idx.head.Number == hn-1 && idx.head.Hash != h.ParentHash {
-		return ErrReorg
+		// Reorg: roll back to the last finalized checkpoint and re-index.
+		idx.head = nil
+		idx.dangling = nil
+		if err := idx.restore(); err != nil {
+			return fmt.Errorf("restore after reorg: %w", err)
+		}
+		if idx.head == nil {
+			return errors.New("reorg detected before any finalized checkpoint was taken")
+		}
 	}
 
 	if err := idx.processRange(ctx, idx.head.Number+1, hn); err != nil {
