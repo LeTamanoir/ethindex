@@ -2,8 +2,7 @@ package ethindex
 
 import (
 	"context"
-	"log/slog"
-	"time"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -24,17 +23,13 @@ type Handler interface {
 }
 
 type Client interface {
-	ethereum.LogFilterer
-	ethereum.ChainReader
+	FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
+	HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error)
 }
 
 type Config struct {
-	NewHeadsBuffer int
-	MaxBlockRange  uint64
-	FinalityDepth  uint64
-	MaxBackoff     time.Duration
-	RetryFunc      func(err error, attempt int) bool
-	Logger         *slog.Logger
+	MaxBlockRange uint64
+	FinalityDepth uint64
 }
 
 type Store interface {

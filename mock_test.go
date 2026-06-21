@@ -34,9 +34,8 @@ func (s *mockSubscription) Err() <-chan error {
 }
 
 type mockClient struct {
-	headerByNumberFunc   func(ctx context.Context, number *big.Int) (*types.Header, error)
-	filterLogsFunc       func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
-	subscribeNewHeadFunc func(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error)
+	headerByNumberFunc func(ctx context.Context, number *big.Int) (*types.Header, error)
+	filterLogsFunc     func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
 }
 
 func (m *mockClient) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
@@ -49,13 +48,6 @@ func (m *mockClient) HeaderByNumber(ctx context.Context, number *big.Int) (*type
 func (m *mockClient) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
 	if m.filterLogsFunc != nil {
 		return m.filterLogsFunc(ctx, q)
-	}
-	return nil, nil
-}
-
-func (m *mockClient) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error) {
-	if m.subscribeNewHeadFunc != nil {
-		return m.subscribeNewHeadFunc(ctx, ch)
 	}
 	return nil, nil
 }
@@ -87,56 +79,45 @@ func (m *mockHandler) Filter() Filter {
 	return m.filter
 }
 
-func (m *mockHandler) Process(ctx context.Context, log types.Log) error {
+func (m *mockHandler) Process(ctx context.Context, logs []types.Log) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.processErr != nil {
 		return m.processErr
 	}
-	m.processed = append(m.processed, log)
+	m.processed = append(m.processed, logs...)
 	return nil
 }
 
-type mockCache struct {
+type mockStore struct {
 	mu    sync.Mutex
-	store map[string]any
+	store map[string][]byte
 }
 
-func newMockCache() *mockCache {
-	return &mockCache{
-		store: make(map[string]any),
+func newMockStore() *mockStore {
+	return &mockStore{
+		store: make(map[string][]byte),
 	}
 }
 
-func (m *mockCache) Load(name string, out any) (bool, error) {
+func (m *mockStore) Load(name string) ([]byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	val, ok := m.store[name]
 	if !ok {
-		return false, nil
+		return nil, nil
 	}
-
-	// Since we are mocking encoding/decoding, we just do a simple type assertion and copy if types match.
-	// For testing indexer we usually use it for saving/loading slices of types.Log or checkpoint struct.
-	// Since types are known, we can do simple assignments.
-	switch o := out.(type) {
-	case *[]types.Log:
-		*o = val.([]types.Log)
-	case *checkpoint:
-		*o = val.(checkpoint)
-	}
-
-	return true, nil
+	return val, nil
 }
 
-func (m *mockCache) Save(name string, v any) error {
+func (m *mockStore) Save(name string, data []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.store[name] = v
+	m.store[name] = data
 	return nil
 }
 
-func (m *mockCache) Delete(name string) error {
+func (m *mockStore) Delete(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.store, name)
