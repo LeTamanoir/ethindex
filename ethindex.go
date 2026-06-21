@@ -11,8 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 )
 
-var ErrReorg = errors.New("chain reorged")
-
 const (
 	finalizedCP = "checkpoint-finalized"
 	danglingCP  = "checkpoint-dangling"
@@ -33,9 +31,9 @@ type Indexer struct {
 	finalityDepth uint64
 
 	// State
-	dangling *BlockRef
-	head     *BlockRef
-	init     bool
+	dangling    *BlockRef
+	head        *BlockRef
+	initialized bool
 }
 
 // New creates a new indexer instance
@@ -62,11 +60,11 @@ func New(c Client, h Handler, s Store, cfg *Config) *Indexer {
 
 // Init starts the indexer
 func (idx *Indexer) Init(ctx context.Context) error {
-	if idx.init {
+	if idx.initialized {
 		panic("Init called on an initialized indexer")
 	}
 
-	if err := idx.restore(ctx); err != nil {
+	if err := idx.restore(); err != nil {
 		return err
 	}
 
@@ -74,14 +72,14 @@ func (idx *Indexer) Init(ctx context.Context) error {
 		return err
 	}
 
-	idx.init = true
+	idx.initialized = true
 
 	return nil
 }
 
 // Process ingests a new head
 func (idx *Indexer) Process(ctx context.Context, h *types.Header) error {
-	if !idx.init {
+	if !idx.initialized {
 		panic("Process called an non initialized indexer")
 	}
 
@@ -100,7 +98,7 @@ func (idx *Indexer) Process(ctx context.Context, h *types.Header) error {
 
 	idx.head = &BlockRef{Number: hn, Hash: h.Hash()}
 
-	if err := idx.maybeCheckpoint(ctx); err != nil {
+	if err := idx.maybeCheckpoint(); err != nil {
 		return err
 	}
 
@@ -163,7 +161,7 @@ func (idx *Indexer) processRange(ctx context.Context, from, to uint64) error {
 func (idx *Indexer) getLogs(ctx context.Context, from, to uint64) ([]types.Log, error) {
 	q := newFilterQuery(idx.h.Filter(), from, to)
 
-	if !idx.init {
+	if !idx.initialized {
 		logs, err := loadCachedLogs(idx.s, q)
 		if err != nil {
 			return nil, err
@@ -178,7 +176,7 @@ func (idx *Indexer) getLogs(ctx context.Context, from, to uint64) ([]types.Log, 
 		return nil, fmt.Errorf("filter logs: %w", err)
 	}
 
-	if !idx.init {
+	if !idx.initialized {
 		if err := saveCachedLogs(idx.s, q, logs); err != nil {
 			return nil, err
 		}
@@ -187,7 +185,7 @@ func (idx *Indexer) getLogs(ctx context.Context, from, to uint64) ([]types.Log, 
 	return logs, nil
 }
 
-func (idx *Indexer) restore(ctx context.Context) error {
+func (idx *Indexer) restore() error {
 	cpb, err := idx.s.Load(finalizedCP)
 	if err != nil {
 		return fmt.Errorf("load finalized checkpoint: %w", err)
@@ -201,7 +199,7 @@ func (idx *Indexer) restore(ctx context.Context) error {
 		return fmt.Errorf("parse finalized checkpoint: %w", err)
 	}
 
-	if err := idx.h.Restore(ctx, cp.State); err != nil {
+	if err := idx.h.Restore(cp.State); err != nil {
 		return fmt.Errorf("restore checkpoint %s: %w", cp.BlockHash, err)
 	}
 
@@ -210,31 +208,33 @@ func (idx *Indexer) restore(ctx context.Context) error {
 	return nil
 }
 
-func (idx *Indexer) maybeCheckpoint(ctx context.Context) error {
+func (idx *Indexer) maybeCheckpoint() error {
 	if idx.head == nil {
 		return nil
 	}
 
 	if idx.dangling == nil {
-		if err := idx.checkpoint(ctx); err != nil {
+		if err := idx.saveDangling(); err != nil {
 			return fmt.Errorf("initial checkpoint: %w", err)
 		}
 	}
 
-	if idx.head.Number >= idx.dangling.Number+idx.finalityDepth {
-		if err := idx.promote(ctx); err != nil {
-			return fmt.Errorf("promote checkpoint: %w", err)
-		}
+	if idx.head.Number < idx.dangling.Number+idx.finalityDepth {
+		return nil
+	}
 
-		if err := idx.checkpoint(ctx); err != nil {
-			return fmt.Errorf("next checkpoint: %w", err)
-		}
+	if err := idx.promoteDangling(); err != nil {
+		return fmt.Errorf("promote checkpoint: %w", err)
+	}
+
+	if err := idx.saveDangling(); err != nil {
+		return fmt.Errorf("next checkpoint: %w", err)
 	}
 
 	return nil
 }
 
-func (idx *Indexer) promote(ctx context.Context) error {
+func (idx *Indexer) promoteDangling() error {
 	cpb, err := idx.s.Load(danglingCP)
 	if err != nil {
 		return fmt.Errorf("load dangling checkpoint: %w", err)
@@ -249,7 +249,9 @@ func (idx *Indexer) promote(ctx context.Context) error {
 	}
 
 	if cp.BlockNumber != idx.dangling.Number || cp.BlockHash != idx.dangling.Hash {
-		return fmt.Errorf("dangling checkpoint/store mismatch")
+		idx.dangling = nil
+
+		return nil
 	}
 
 	if err := idx.s.Save(finalizedCP, cpb); err != nil {
@@ -261,8 +263,8 @@ func (idx *Indexer) promote(ctx context.Context) error {
 	return nil
 }
 
-func (idx *Indexer) checkpoint(ctx context.Context) error {
-	state, err := idx.h.Snapshot(ctx)
+func (idx *Indexer) saveDangling() error {
+	state, err := idx.h.Snapshot()
 	if err != nil {
 		return err
 	}

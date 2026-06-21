@@ -62,13 +62,13 @@ type mockHandler struct {
 	restoreErr  error
 }
 
-func (m *mockHandler) Snapshot(ctx context.Context) ([]byte, error) {
+func (m *mockHandler) Snapshot() ([]byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.state, m.snapshotErr
 }
 
-func (m *mockHandler) Restore(ctx context.Context, state []byte) error {
+func (m *mockHandler) Restore(state []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.state = state
