@@ -108,8 +108,6 @@ func TestIndexer_Reorg(t *testing.T) {
 
 	finalizedBlockNum := uint64(10)
 
-	reorgTriggered := false
-
 	client := &mockClient{
 		headerByNumberFunc: func(ctx context.Context, number *big.Int) (*types.Header, error) {
 			return &types.Header{
@@ -125,10 +123,25 @@ func TestIndexer_Reorg(t *testing.T) {
 		filter: Filter{FromBlock: 10},
 	}
 
-	indexer := NewIndexer(client, handler, newMockStore(), nil)
+	store := newMockStore()
+	indexer := NewIndexer(client, handler, store, nil)
 
 	if err := indexer.Init(ctx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Save a finalized checkpoint so Process can recover from a reorg.
+	cp := checkpoint{
+		BlockNumber: indexer.head.Number,
+		BlockHash:   indexer.head.Hash,
+		State:       []byte("restored_state"),
+	}
+	cpb, err := cp.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(finalizedCP, cpb); err != nil {
+		t.Fatal(err)
 	}
 
 	// Push a valid block.
@@ -137,21 +150,24 @@ func TestIndexer_Reorg(t *testing.T) {
 		t.Fatalf("process h11: %v", err)
 	}
 
+	// Corrupt handler state to prove the reorg path restores it.
+	handler.state = []byte("corrupted")
+
 	// Push a block with the wrong parent hash to trigger a reorg.
 	h12 := &types.Header{
 		Number:     big.NewInt(12),
 		ParentHash: common.HexToHash("0xdeadbeef"), // mismatch
 	}
 	if err := indexer.Process(ctx, h12); err != nil {
-		if err == ErrReorg {
-			reorgTriggered = true
-		} else {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		t.Fatalf("process h12 after reorg: %v", err)
 	}
 
-	if !reorgTriggered {
-		t.Errorf("expected reorg to be triggered")
+	if string(handler.state) != "restored_state" {
+		t.Errorf("expected handler state to be restored after reorg, got %q", handler.state)
+	}
+
+	if indexer.head.Number != 12 {
+		t.Errorf("expected head to be 12 after reorg recovery, got %d", indexer.head.Number)
 	}
 }
 

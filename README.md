@@ -31,7 +31,7 @@ if err != nil {
 	log.Fatal(err)
 }
 
-idx := ethindex.New(client, myHandler, store, nil)
+idx := ethindex.NewIndexer(client, myHandler, store, nil)
 if err := idx.Init(ctx); err != nil {
 	log.Fatal(err)
 }
@@ -49,15 +49,7 @@ for {
 		return
 	case h := <-heads:
 		if err := idx.Process(ctx, h); err != nil {
-			if !errors.Is(err, ethindex.ErrReorg) {
-				log.Fatal(err)
-			}
-			// Reorg: rebuild and resume from the last finalized checkpoint.
-			// Init panics if called twice on the same Indexer, so recreate it.
-			idx = ethindex.New(client, myHandler, store, nil)
-			if err := idx.Init(ctx); err != nil {
-				log.Fatal(err)
-			}
+			log.Fatal(err)
 		}
 	}
 }
@@ -101,7 +93,9 @@ S ------------------------ F --------- o --------- H
 
 `Init` restores the finalized checkpoint, backfills to the node's current
 finalized block (caching log batches on disk), then returns. `Process` checks
-each header's parent hash and returns `ErrReorg` on mismatch.
+each header's parent hash; on mismatch it rolls back to the last finalized
+checkpoint and re-indexes the divergent range, so reorgs are handled
+transparently.
 
 ## Development
 
