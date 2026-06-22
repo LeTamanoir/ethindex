@@ -161,7 +161,7 @@ func run() error {
 
 	idx, err := ethindex.NewIndexer(ctx, httpClient, NewWETH(), wethFilter, store, &ethindex.Config{ProgressCh: progress})
 	if err != nil {
-		return fmt.Errorf("init: %w", err)
+		return fmt.Errorf("new indexer: %w", err)
 	}
 	close(progress)
 
