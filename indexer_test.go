@@ -132,7 +132,7 @@ func TestIndexer_Reorg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Save(t.Context(), finalizedCP, cpb); err != nil {
+	if err := store.Save(t.Context(), finalizedCheckpoint, cpb); err != nil {
 		t.Fatal(err)
 	}
 
@@ -235,7 +235,7 @@ func TestIndexer_Restore(t *testing.T) {
 	}
 
 	store := newMockStore()
-	store.Save(t.Context(), finalizedCP, cpb)
+	store.Save(t.Context(), finalizedCheckpoint, cpb)
 
 	client := &mockClient{
 		headerByNumberFunc: func(ctx context.Context, number *big.Int) (*types.Header, error) {

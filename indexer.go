@@ -11,11 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 )
 
-const (
-	finalizedCP = "checkpoint-finalized"
-	danglingCP  = "checkpoint-dangling"
-)
-
 type BlockRef struct {
 	Number uint64
 	Hash   common.Hash
@@ -28,12 +23,11 @@ type Indexer struct {
 	s Store
 
 	// Configs
-	maxBlockRange uint64
 	finalityDepth uint64
 
 	// State
-	dangling *BlockRef
-	head     *BlockRef
+	dangling BlockRef
+	head     BlockRef
 }
 
 func NewIndexer(ctx context.Context, c Client, h Handler, f Filter, s Store, cfg *Config) (*Indexer, error) {
@@ -59,84 +53,128 @@ func NewIndexer(ctx context.Context, c Client, h Handler, f Filter, s Store, cfg
 		h: h,
 		s: s,
 
-		maxBlockRange: maxBlockRange,
 		finalityDepth: finalityDepth,
 	}
 
-	{
-		head, ok, err := restoreCheckpoint(ctx, s, h)
-		if err != nil {
-			return nil, err
+	cp, ok, err := loadFinalized(ctx, s)
+	if err != nil {
+		return nil, fmt.Errorf("load finalized: %w", err)
+	}
+	if ok {
+		if err := idx.h.Restore(ctx, cp.State); err != nil {
+			return nil, fmt.Errorf("restore finalized: %w", err)
 		}
-		if ok {
-			idx.head = head
-		}
+		idx.head = cp.Head
 	}
 
-	from := f.FromBlock
-	if idx.head != nil {
-		from = idx.head.Number + 1
-	}
-
-	head, err := backfill(ctx, c, h, s, f, from, maxBlockRange, progress)
+	final, err := c.HeaderByNumber(ctx, big.NewInt(int64(rpc.FinalizedBlockNumber)))
 	if err != nil {
 		return nil, err
 	}
-	idx.head = head
+
+	from := f.FromBlock
+	if idx.head != (BlockRef{}) {
+		from = idx.head.Number + 1
+	}
+	to := final.Number.Uint64()
+
+	if from <= to {
+		err := backfill(ctx, c, h, s, f, from, to, maxBlockRange, progress)
+		if err != nil {
+			return nil, fmt.Errorf("backfill: %w", err)
+		}
+
+		idx.head = BlockRef{Number: to, Hash: final.Hash()}
+
+		state, err := h.Snapshot(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("snapshot: %w", err)
+		}
+
+		if err := saveFinalized(ctx, s, checkpoint{idx.head, state}); err != nil {
+			return nil, fmt.Errorf("save finalized: %w", err)
+		}
+	}
 
 	return idx, nil
 }
 
-// Process ingests a new head.
-//
-// If the header does not extend the current chain (its parent hash does not
-// match the known head), a reorg has occurred. Process handles it internally
-// by restoring handler state from the last finalized checkpoint and
-// re-indexing the divergent range up to the new head. The caller therefore
-// only sees errors for genuine failures, not for reorgs.
+// Process ingests a new head and handles reorgs.
 func (idx *Indexer) Process(ctx context.Context, h *types.Header) error {
-	hn := h.Number.Uint64()
+	inum := idx.head.Number
+	hnum := h.Number.Uint64()
 
-	// Only check for reorgs when appending the strictly sequential next block.
-	// This safely bypasses the check during the brief transition from the
-	// backfilled state to the live network head.
-	if idx.head.Number == hn-1 && idx.head.Hash != h.ParentHash {
-		idx.head = nil
-		idx.dangling = nil
+	if hnum < inum {
+		return fmt.Errorf("can not process old heads")
+	}
 
-		head, ok, err := restoreCheckpoint(ctx, idx.s, idx.h)
+	// Enforce we only process strictly sequential heads
+	if hnum != inum-1 {
+		heads, err := headersRange(ctx, idx.c, inum+1, hnum)
 		if err != nil {
-			return fmt.Errorf("restore after reorg: %w", err)
+			return fmt.Errorf("headers range: %w", err)
+		}
+
+		for _, h := range heads {
+			if err := idx.Process(ctx, h); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	// Handle reorg
+	if idx.head.Hash != h.ParentHash {
+		idx.head = BlockRef{}
+		idx.dangling = BlockRef{}
+
+		cp, ok, err := loadFinalized(ctx, idx.s)
+		if err != nil {
+			return fmt.Errorf("load finalized: %w", err)
 		}
 		if !ok {
-			return errors.New("reorg detected before any finalized checkpoint was taken")
+			return errors.New("reorg detected but no finalized checkpoint found")
 		}
-		idx.head = head
-	}
-
-	if err := index(ctx, idx.c, idx.h, idx.f, idx.head.Number+1, hn, idx.maxBlockRange); err != nil {
-		return err
-	}
-
-	head := BlockRef{Number: hn, Hash: h.Hash()}
-
-	if idx.dangling == nil {
-		if err := saveCheckpoint(ctx, idx.h, idx.s, head); err != nil {
-			return fmt.Errorf("checkpoint: %w", err)
+		if err := idx.h.Restore(ctx, cp.State); err != nil {
+			return fmt.Errorf("restore: %w", err)
 		}
 
-		idx.dangling = &head
+		idx.head = cp.Head
+
+		return idx.Process(ctx, h)
+	}
+
+	logs, err := idx.c.FilterLogs(ctx, newFilterQuery(idx.f, hnum, hnum))
+	if err != nil {
+		return fmt.Errorf("get logs: %w", err)
+	}
+
+	if err := idx.h.Process(ctx, logs); err != nil {
+		return fmt.Errorf("process logs: %w", err)
+	}
+
+	idx.head = BlockRef{Number: hnum, Hash: h.Hash()}
+
+	if idx.dangling == (BlockRef{}) {
+		state, err := idx.h.Snapshot(ctx)
+		if err != nil {
+			return fmt.Errorf("snapshot: %w", err)
+		}
+
+		cp := checkpoint{Head: idx.head, State: state}
+		if err := saveDangling(ctx, idx.s, cp); err != nil {
+			return fmt.Errorf("save dangling: %w", err)
+		}
+		idx.dangling = cp.Head
 	}
 
 	if idx.head.Number >= idx.dangling.Number+idx.finalityDepth {
-		if err := promoteCheckpoint(ctx, idx.s, *idx.dangling); err != nil {
-			return fmt.Errorf("promote checkpoint: %w", err)
+		if err := promoteDangling(ctx, idx.s); err != nil {
+			return fmt.Errorf("promote dangling: %w", err)
 		}
-
-		idx.dangling = nil
+		idx.dangling = BlockRef{}
 	}
-
-	idx.head = &head
 
 	return nil
 }
@@ -147,67 +185,13 @@ func backfill(
 	h Handler,
 	s Store,
 	f Filter,
-	from, maxBlockRange uint64,
-	progress chan<- Progress,
-) (*BlockRef, error) {
-	final, err := c.HeaderByNumber(ctx, big.NewInt(int64(rpc.FinalizedBlockNumber)))
-	if err != nil {
-		return nil, err
-	}
-
-	to := final.Number.Uint64()
-
-	if from > to {
-		return nil, nil
-	}
-
-	if progress != nil {
-		if err := reportProgress(ctx, progress, Progress{from, to}); err != nil {
-			return nil, err
-		}
-	}
-
-	for _, ch := range chunkBlockRange(from, to, maxBlockRange) {
-		q := newFilterQuery(f, ch.from, ch.to)
-
-		logs, err := cachedFilterLogs(ctx, c, s, q)
-		if err != nil {
-			return nil, fmt.Errorf("get logs: %w", err)
-		}
-
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-
-		if err := h.Process(ctx, logs); err != nil {
-			return nil, fmt.Errorf("process logs: %w", err)
-		}
-
-		if progress != nil {
-			if err := reportProgress(ctx, progress, Progress{ch.to, to}); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	return &BlockRef{Number: to, Hash: final.Hash()}, nil
-}
-
-func index(
-	ctx context.Context,
-	c Client,
-	h Handler,
-	f Filter,
 	from, to, maxBlockRange uint64,
+	progress chan<- Progress,
 ) error {
-	if from > to {
-		panic(fmt.Errorf("invalid block range: from (%d) > to (%d)", from, to))
-	}
+	reportProgress(ctx, progress, Progress{from, from, to})
 
 	for _, ch := range chunkBlockRange(from, to, maxBlockRange) {
-		q := newFilterQuery(f, ch.from, ch.to)
-
-		logs, err := c.FilterLogs(ctx, q)
+		logs, err := cachedFilterLogs(ctx, c, s, newFilterQuery(f, ch.from, ch.to))
 		if err != nil {
 			return fmt.Errorf("get logs: %w", err)
 		}
@@ -219,90 +203,19 @@ func index(
 		if err := h.Process(ctx, logs); err != nil {
 			return fmt.Errorf("process logs: %w", err)
 		}
+
+		reportProgress(ctx, progress, Progress{from, ch.to, to})
 	}
 
 	return nil
 }
 
-func reportProgress(ctx context.Context, ch chan<- Progress, p Progress) error {
+func reportProgress(ctx context.Context, ch chan<- Progress, p Progress) {
+	if ch == nil {
+		return
+	}
 	select {
 	case ch <- p:
-		return nil
 	case <-ctx.Done():
-		return ctx.Err()
 	}
-}
-
-func restoreCheckpoint(ctx context.Context, s Store, h Handler) (*BlockRef, bool, error) {
-	cpb, err := s.Load(ctx, finalizedCP)
-	if err != nil {
-		return nil, false, fmt.Errorf("load finalized checkpoint: %w", err)
-	}
-	if len(cpb) == 0 {
-		return nil, false, nil
-	}
-
-	var cp checkpoint
-	if err := cp.UnmarshalBinary(cpb); err != nil {
-		return nil, false, fmt.Errorf("parse finalized checkpoint: %w", err)
-	}
-
-	if err := h.Restore(ctx, cp.State); err != nil {
-		return nil, false, fmt.Errorf("restore checkpoint %s: %w", cp.BlockHash, err)
-	}
-
-	return &BlockRef{Number: cp.BlockNumber, Hash: cp.BlockHash}, true, nil
-}
-
-func promoteCheckpoint(
-	ctx context.Context,
-	s Store,
-	confirm BlockRef,
-) error {
-	cpb, err := s.Load(ctx, danglingCP)
-	if err != nil {
-		return fmt.Errorf("load dangling checkpoint: %w", err)
-	}
-	if len(cpb) == 0 {
-		return errors.New("dangling checkpoint missing from store")
-	}
-
-	var cp checkpoint
-	if err := cp.UnmarshalBinary(cpb); err != nil {
-		return fmt.Errorf("parse dangling checkpoint: %w", err)
-	}
-
-	if cp.BlockNumber != confirm.Number || cp.BlockHash != confirm.Hash {
-		return nil
-	}
-
-	if err := s.Save(ctx, finalizedCP, cpb); err != nil {
-		return fmt.Errorf("save finalized checkpoint: %w", err)
-	}
-
-	return nil
-}
-
-func saveCheckpoint(ctx context.Context, h Handler, s Store, head BlockRef) error {
-	state, err := h.Snapshot(ctx)
-	if err != nil {
-		return err
-	}
-
-	cp := checkpoint{
-		BlockNumber: head.Number,
-		BlockHash:   head.Hash,
-		State:       state,
-	}
-
-	cpb, err := cp.MarshalBinary()
-	if err != nil {
-		return fmt.Errorf("marshal checkpoint: %w", err)
-	}
-
-	if err := s.Save(ctx, danglingCP, cpb); err != nil {
-		return fmt.Errorf("save checkpoint: %w", err)
-	}
-
-	return nil
 }

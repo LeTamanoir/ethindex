@@ -11,8 +11,9 @@ import (
 
 // Progress is a best-effort snapshot of an in-progress backfill.
 type Progress struct {
+	StartBlock   uint64
 	CurrentBlock uint64
-	ToBlock      uint64
+	EndBlock     uint64
 }
 
 // Filter specifies the Ethereum logs to fetch during indexing.
