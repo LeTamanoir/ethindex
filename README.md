@@ -31,13 +31,16 @@ if err != nil {
 	log.Fatal(err)
 }
 
-filter := ethindex.Filter{
-	FromBlock: 18_000_000,
-	Addresses: []common.Address{contractAddr},
-	Topics:    [][]common.Hash{{eventTopic}},
-}
-
-idx, err := ethindex.NewIndexer(ctx, client, myHandler, filter, store, nil)
+idx, err := ethindex.NewIndexer(ctx, ethindex.Config{
+	Client:  client,
+	Handler: myHandler,
+	Filter: ethindex.Filter{
+		FromBlock: 18_000_000,
+		Addresses: []common.Address{contractAddr},
+		Topics:    [][]common.Hash{{eventTopic}},
+	},
+	Store: store,
+})
 if err != nil {
 	log.Fatal(err)
 }
@@ -65,9 +68,9 @@ Implement `Handler` with your indexing logic:
 
 ```go
 type Handler interface {
-	Process(context.Context, []types.Log) error
 	Snapshot(context.Context) ([]byte, error)
 	Restore(context.Context, []byte) error
+	Process(context.Context, []types.Log) error
 }
 ```
 
@@ -75,11 +78,15 @@ See [`examples/weth`](examples/weth) for a full example.
 
 ## Config
 
-| Field           | Default | Description                                  |
-| --------------- | ------- | -------------------------------------------- |
-| `MaxBlockRange` | 10,000  | Max blocks per `eth_getLogs` request         |
-| `FinalityDepth` | 64      | Blocks before a dangling checkpoint is finalized |
-| `ProgressCh`    | `nil`   | Channel to receive backfill progress updates |
+| Field           | Required | Default        | Description                                  |
+| --------------- | -------- | -------------- | -------------------------------------------- |
+| `Client`        | yes      |                | Ethereum RPC client                          |
+| `Handler`       | yes      |                | Indexing logic                               |
+| `Filter`        | yes      |                | Logs to fetch                                |
+| `Store`         | yes      |                | Checkpoint/state persistence                 |
+| `Logger`        | no       | `slog.Default` | Operational logger                           |
+| `MaxBlockRange` | no       | 10,000         | Max blocks per `eth_getLogs` request         |
+| `FinalityDepth` | no       | 64             | Blocks before a dangling checkpoint is finalized |
 
 `Filter.FromBlock` is the start block on a fresh run; ignored once a
 checkpoint exists.
@@ -103,29 +110,24 @@ each header's parent hash; on mismatch it rolls back to the last finalized
 checkpoint and re-indexes the divergent range, so reorgs are handled
 transparently.
 
-## Observing progress
+## Logging
 
-`NewIndexer` blocks during backfill, which can take a long time on a fresh run.
-Pass a `ProgressCh` in `Config` to receive a best-effort snapshot on each chunk:
+The indexer logs lifecycle events (start, restore, backfill, reorgs, checkpoint
+promotions) and per-chunk/per-head diagnostics through the `slog.Logger` in
+`Config.Logger`. The default is `slog.Default`; pass a configured logger to
+route output elsewhere, or lower the level to `slog.LevelDebug` to see
+per-block and per-chunk detail:
 
 ```go
-progress := make(chan ethindex.Progress)
-go func() {
-	for p := range progress {
-		log.Printf("backfill %d/%d blocks (%.2f%%)", p.CurrentBlock, p.EndBlock, p.Percent())
-	}
-}()
+logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+	Level: slog.LevelDebug,
+}))
 
-idx, err := ethindex.NewIndexer(ctx, client, myHandler, filter, store, &ethindex.Config{
-	ProgressCh: progress,
+idx, err := ethindex.NewIndexer(ctx, ethindex.Config{
+	// ...
+	Logger: logger,
 })
-if err != nil {
-	log.Fatal(err)
-}
-close(progress)
 ```
-
-`Progress` is safe to read concurrently with `NewIndexer`.
 
 ## Development
 
