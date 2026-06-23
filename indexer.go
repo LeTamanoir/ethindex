@@ -37,7 +37,7 @@ type Indexer struct {
 
 func (idx *Indexer) waitPendingSave() error {
 	ch := idx.pendingSave
-	idx.pendingSave = make(chan error, 1)
+	idx.pendingSave = nil
 	if ch == nil {
 		return nil
 	}
@@ -214,13 +214,15 @@ func (idx *Indexer) Process(ctx context.Context, h *types.Header) error {
 
 		cp := checkpoint{Head: idx.head, State: state}
 
+		saveCh := make(chan error, 1)
+		idx.pendingSave = saveCh
 		go func() {
 			saveStart := time.Now()
 			err := saveDangling(ctx, idx.s, cp)
 			if err == nil {
 				idx.l.Debug("saved dangling checkpoint", "head", cp.Head.Number, "snapshot", snapDuration, "save", time.Since(saveStart), "duration", time.Since(start))
 			}
-			idx.pendingSave <- err
+			saveCh <- err
 		}()
 
 		idx.dangling = cp.Head
