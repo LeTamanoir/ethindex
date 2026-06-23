@@ -138,6 +138,8 @@ func run() error {
 
 	_ = godotenv.Load()
 
+	slog.SetLogLoggerLevel(slog.LevelDebug)
+
 	httpC, wsC, err := initClients(ctx)
 	if err != nil {
 		return err
@@ -174,9 +176,6 @@ func run() error {
 			if err := idx.Process(ctx, h); err != nil {
 				return fmt.Errorf("process head %d: %w", h.Number, err)
 			}
-			slog.Info("processed head", "number", h.Number.Uint64(), "hash", h.Hash())
-		case err := <-sub.Err():
-			return fmt.Errorf("head subscription: %w", err)
 		}
 	}
 }

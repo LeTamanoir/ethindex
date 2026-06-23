@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -56,19 +57,23 @@ func NewIndexer(ctx context.Context, cfg Config) (*Indexer, error) {
 		return nil, fmt.Errorf("load finalized: %w", err)
 	}
 	if ok {
-		idx.l.Info("restoring from finalized checkpoint", "head", cp.Head.Number)
+		start := time.Now()
 
 		if err := idx.h.Restore(ctx, cp.State); err != nil {
 			return nil, fmt.Errorf("restore finalized: %w", err)
 		}
 
 		idx.head = cp.Head
+
+		idx.l.Info("restored from finalized checkpoint", "head", cp.Head.Number, "duration", time.Since(start))
 	}
 
+	start := time.Now()
 	final, err := idx.c.HeaderByNumber(ctx, big.NewInt(int64(rpc.FinalizedBlockNumber)))
 	if err != nil {
 		return nil, err
 	}
+	idx.l.Debug("fetched finalized header", "number", final.Number.Uint64(), "duration", time.Since(start))
 
 	from := idx.f.FromBlock
 	if idx.head != (BlockRef{}) {
@@ -115,12 +120,14 @@ func (idx *Indexer) Process(ctx context.Context, h *types.Header) error {
 
 	// Enforce strict consecutive heads
 	if hnum != inum+1 {
-		idx.l.Info("filling missing heads", "from", inum+1, "to", hnum)
+		start := time.Now()
 
 		heads, err := headersRange(ctx, idx.c, inum+1, hnum)
 		if err != nil {
 			return fmt.Errorf("headers range: %w", err)
 		}
+
+		idx.l.Info("filled missing heads", "from", inum+1, "to", hnum, "duration", time.Since(start))
 
 		for _, h := range heads {
 			if err := idx.Process(ctx, h); err != nil {
@@ -146,7 +153,7 @@ func (idx *Indexer) Process(ctx context.Context, h *types.Header) error {
 			return errors.New("reorg detected but no finalized checkpoint found")
 		}
 
-		idx.l.Info("restoring from finalized checkpoint", "head", cp.Head.Number)
+		start := time.Now()
 
 		if err := idx.h.Restore(ctx, cp.State); err != nil {
 			return fmt.Errorf("restore: %w", err)
@@ -154,8 +161,12 @@ func (idx *Indexer) Process(ctx context.Context, h *types.Header) error {
 
 		idx.head = cp.Head
 
+		idx.l.Info("restored from finalized checkpoint", "head", cp.Head.Number, "duration", time.Since(start))
+
 		return idx.Process(ctx, h)
 	}
+
+	start := time.Now()
 
 	logs, err := idx.c.FilterLogs(ctx, newFilterQuery(idx.f, hnum, hnum))
 	if err != nil {
@@ -168,9 +179,11 @@ func (idx *Indexer) Process(ctx context.Context, h *types.Header) error {
 
 	idx.head = BlockRef{Number: hnum, Hash: h.Hash()}
 
-	idx.l.Debug("processed head", "number", hnum, "logs", len(logs))
+	idx.l.Debug("processed head", "number", hnum, "logs", len(logs), "duration", time.Since(start))
 
 	if idx.dangling == (BlockRef{}) {
+		start := time.Now()
+
 		state, err := idx.h.Snapshot(ctx)
 		if err != nil {
 			return fmt.Errorf("snapshot: %w", err)
@@ -181,17 +194,19 @@ func (idx *Indexer) Process(ctx context.Context, h *types.Header) error {
 			return fmt.Errorf("save dangling: %w", err)
 		}
 
-		idx.l.Debug("saved dangling checkpoint", "head", idx.head.Number)
+		idx.l.Debug("saved dangling checkpoint", "head", idx.head.Number, "duration", time.Since(start))
 
 		idx.dangling = cp.Head
 	}
 
 	if idx.head.Number >= idx.dangling.Number+idx.finalityDepth {
+		start := time.Now()
+
 		if err := promoteDangling(ctx, idx.s); err != nil {
 			return fmt.Errorf("promote dangling: %w", err)
 		}
 
-		idx.l.Info("promoted dangling checkpoint to finalized", "head", idx.dangling.Number)
+		idx.l.Info("promoted dangling checkpoint to finalized", "head", idx.dangling.Number, "duration", time.Since(start))
 
 		idx.dangling = BlockRef{}
 	}
@@ -204,7 +219,11 @@ func (idx *Indexer) backfill(ctx context.Context, from, to uint64) error {
 
 	idx.l.Info("backfilling", "from", from, "to", to, "chunks", len(chunks))
 
+	start := time.Now()
+
 	for _, ch := range chunks {
+		chStart := time.Now()
+
 		logs, err := cachedFilterLogs(ctx, idx.c, idx.s, newFilterQuery(idx.f, ch.from, ch.to))
 		if err != nil {
 			return fmt.Errorf("get logs: %w", err)
@@ -218,10 +237,10 @@ func (idx *Indexer) backfill(ctx context.Context, from, to uint64) error {
 			return fmt.Errorf("process logs: %w", err)
 		}
 
-		idx.l.Debug("backfill chunk processed", "from", ch.from, "to", ch.to, "logs", len(logs))
+		idx.l.Debug("backfill chunk processed", "from", ch.from, "to", ch.to, "logs", len(logs), "duration", time.Since(chStart))
 	}
 
-	idx.l.Info("backfill complete", "from", from, "to", to)
+	idx.l.Info("backfill complete", "from", from, "to", to, "duration", time.Since(start))
 
 	return nil
 }
