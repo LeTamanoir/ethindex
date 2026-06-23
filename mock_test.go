@@ -2,12 +2,18 @@ package ethindex
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"math/big"
 	"sync"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/core/types"
 )
+
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
 
 type mockSubscription struct {
 	errCh   chan error
