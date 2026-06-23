@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -21,6 +22,7 @@ type Indexer struct {
 	h Handler
 	f Filter
 	s Store
+	l *slog.Logger
 
 	// Configs
 	finalityDepth uint64
@@ -30,33 +32,22 @@ type Indexer struct {
 	head     BlockRef
 }
 
-func NewIndexer(ctx context.Context, c Client, h Handler, f Filter, s Store, cfg *Config) (*Indexer, error) {
-	finalityDepth := uint64(64)
-	maxBlockRange := uint64(10_000)
-	var progress chan Progress
-
-	if cfg != nil {
-		if cfg.FinalityDepth != 0 {
-			finalityDepth = cfg.FinalityDepth
-		}
-		if cfg.MaxBlockRange != 0 {
-			maxBlockRange = cfg.MaxBlockRange
-		}
-		if cfg.ProgressCh != nil {
-			progress = cfg.ProgressCh
-		}
+func NewIndexer(ctx context.Context, cfg Config) (*Indexer, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
 	}
 
 	idx := &Indexer{
-		c: c,
-		f: f,
-		h: h,
-		s: s,
+		c: cfg.Client,
+		f: cfg.Filter,
+		h: cfg.Handler,
+		s: cfg.Store,
+		l: cfg.Logger,
 
-		finalityDepth: finalityDepth,
+		finalityDepth: cfg.FinalityDepth,
 	}
 
-	cp, ok, err := loadFinalized(ctx, s)
+	cp, ok, err := loadFinalized(ctx, idx.s)
 	if err != nil {
 		return nil, fmt.Errorf("load finalized: %w", err)
 	}
@@ -67,31 +58,30 @@ func NewIndexer(ctx context.Context, c Client, h Handler, f Filter, s Store, cfg
 		idx.head = cp.Head
 	}
 
-	final, err := c.HeaderByNumber(ctx, big.NewInt(int64(rpc.FinalizedBlockNumber)))
+	final, err := idx.c.HeaderByNumber(ctx, big.NewInt(int64(rpc.FinalizedBlockNumber)))
 	if err != nil {
 		return nil, err
 	}
 
-	from := f.FromBlock
+	from := idx.f.FromBlock
 	if idx.head != (BlockRef{}) {
 		from = idx.head.Number + 1
 	}
 	to := final.Number.Uint64()
 
 	if from <= to {
-		err := backfill(ctx, c, h, s, f, from, to, maxBlockRange, progress)
-		if err != nil {
+		if err := backfill(ctx, idx.c, idx.h, idx.s, idx.f, from, to, cfg.MaxBlockRange); err != nil {
 			return nil, fmt.Errorf("backfill: %w", err)
 		}
 
 		idx.head = BlockRef{Number: to, Hash: final.Hash()}
 
-		state, err := h.Snapshot(ctx)
+		state, err := idx.h.Snapshot(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("snapshot: %w", err)
 		}
 
-		if err := saveFinalized(ctx, s, checkpoint{idx.head, state}); err != nil {
+		if err := saveFinalized(ctx, idx.s, checkpoint{idx.head, state}); err != nil {
 			return nil, fmt.Errorf("save finalized: %w", err)
 		}
 	}
@@ -186,10 +176,7 @@ func backfill(
 	s Store,
 	f Filter,
 	from, to, maxBlockRange uint64,
-	progress chan<- Progress,
 ) error {
-	reportProgress(ctx, progress, Progress{from, from, to})
-
 	for _, ch := range chunkBlockRange(from, to, maxBlockRange) {
 		logs, err := cachedFilterLogs(ctx, c, s, newFilterQuery(f, ch.from, ch.to))
 		if err != nil {
@@ -203,19 +190,7 @@ func backfill(
 		if err := h.Process(ctx, logs); err != nil {
 			return fmt.Errorf("process logs: %w", err)
 		}
-
-		reportProgress(ctx, progress, Progress{from, ch.to, to})
 	}
 
 	return nil
-}
-
-func reportProgress(ctx context.Context, ch chan<- Progress, p Progress) {
-	if ch == nil {
-		return
-	}
-	select {
-	case ch <- p:
-	case <-ctx.Done():
-	}
 }

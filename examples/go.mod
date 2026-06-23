@@ -4,6 +4,7 @@ go 1.26.3
 
 require (
 	github.com/ethereum/go-ethereum v1.17.3
+	github.com/holiman/uint256 v1.3.2
 	github.com/joho/godotenv v1.5.1
 	github.com/letamanoir/ethindex v0.0.0-20260615194915-a54c79b73f8d
 )
@@ -46,7 +47,6 @@ require (
 	github.com/grafana/pyroscope-go v1.2.7 // indirect
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.9 // indirect
 	github.com/hashicorp/go-bexpr v0.1.10 // indirect
-	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/huin/goupnp v1.3.0 // indirect
 	github.com/jackpal/go-nat-pmp v1.0.2 // indirect
 	github.com/klauspost/compress v1.17.8 // indirect

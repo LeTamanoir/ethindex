@@ -2,29 +2,14 @@ package ethindex
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 )
-
-// Progress is a best-effort snapshot of an in-progress backfill.
-type Progress struct {
-	StartBlock   uint64
-	CurrentBlock uint64
-	EndBlock     uint64
-}
-
-// Percent returns the progress as a percentage of blocks processed relative
-// to the total backfill range (EndBlock - StartBlock).
-func (p Progress) Percent() float64 {
-	total := p.EndBlock - p.StartBlock
-	if total == 0 {
-		return 0
-	}
-	return float64(p.CurrentBlock-p.StartBlock) / float64(total) * 100.0
-}
 
 // Filter specifies the Ethereum logs to fetch during indexing.
 type Filter struct {
@@ -60,6 +45,16 @@ type Client interface {
 
 // Config configures the indexer.
 type Config struct {
+	Client Client
+
+	Logger *slog.Logger
+
+	Handler Handler
+
+	Filter Filter
+
+	Store Store
+
 	// MaxBlockRange is the maximum block span per backfill RPC call.
 	// The default is 10,000.
 	MaxBlockRange uint64
@@ -67,9 +62,31 @@ type Config struct {
 	// FinalityDepth is the block depth considered finalized.
 	// The default is 64.
 	FinalityDepth uint64
+}
 
-	// ProgressCh is used to track indexer progress when backfilling
-	ProgressCh chan Progress
+func (c *Config) Validate() error {
+	if c.Client == nil {
+		return fmt.Errorf("client is required")
+	}
+	if c.Store == nil {
+		return fmt.Errorf("store is required")
+	}
+	if c.Handler == nil {
+		return fmt.Errorf("handler is required")
+	}
+
+	// Apply defaults
+	if c.FinalityDepth != 0 {
+		c.FinalityDepth = uint64(64)
+	}
+	if c.MaxBlockRange != 0 {
+		c.MaxBlockRange = uint64(10_000)
+	}
+	if c.Logger == nil {
+		c.Logger = slog.Default()
+	}
+
+	return nil
 }
 
 // Store defines the persistence methods used by the indexer.

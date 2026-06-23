@@ -2,7 +2,10 @@ module github.com/letamanoir/ethindex
 
 go 1.26.3
 
-require github.com/ethereum/go-ethereum v1.17.3
+require (
+	github.com/ethereum/go-ethereum v1.17.3
+	golang.org/x/sync v0.19.0
+)
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
@@ -28,6 +31,5 @@ require (
 	go.opentelemetry.io/otel v1.40.0 // indirect
 	go.opentelemetry.io/otel/metric v1.40.0 // indirect
 	go.opentelemetry.io/otel/trace v1.40.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 )

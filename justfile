@@ -9,11 +9,15 @@ fmt:
 
 # Run tests
 test:
-    go test ./... -v -race
+    go test -v -race
+
+# Run benchmarks
+bench:
+    go test -bench=.
 
 # Run go vet
 vet:
-    go vet ./...
+    go vet
 
 # Tidy dependencies
 tidy:

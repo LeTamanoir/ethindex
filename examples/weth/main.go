@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
-	"math/big"
 	"os"
 	"os/signal"
 	"syscall"
@@ -19,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
 	"github.com/joho/godotenv"
 	"github.com/letamanoir/ethindex"
 	"github.com/letamanoir/ethindex/examples/contracts"
@@ -38,14 +38,14 @@ var (
 )
 
 type WETH struct {
-	Balances   map[common.Address]big.Int
-	Allowances map[common.Address]map[common.Address]big.Int
+	Balances   map[common.Address]uint256.Int
+	Allowances map[common.Address]map[common.Address]uint256.Int
 }
 
 func NewWETH() *WETH {
 	return &WETH{
-		Balances:   make(map[common.Address]big.Int),
-		Allowances: make(map[common.Address]map[common.Address]big.Int),
+		Balances:   make(map[common.Address]uint256.Int),
+		Allowances: make(map[common.Address]map[common.Address]uint256.Int),
 	}
 }
 
@@ -70,15 +70,15 @@ func (e *WETH) Process(_ context.Context, logs []types.Log) error {
 			}
 			from := common.BytesToAddress(log.Topics[1].Bytes())
 			to := common.BytesToAddress(log.Topics[2].Bytes())
-			value := new(big.Int).SetBytes(log.Data)
+			value := new(uint256.Int).SetBytes(log.Data)
 
 			if from != (common.Address{}) {
 				fromBalance := e.Balances[from]
-				e.Balances[from] = *new(big.Int).Sub(&fromBalance, value)
+				e.Balances[from] = *new(uint256.Int).Sub(&fromBalance, value)
 			}
 			if to != (common.Address{}) {
 				toBalance := e.Balances[to]
-				e.Balances[to] = *new(big.Int).Add(&toBalance, value)
+				e.Balances[to] = *new(uint256.Int).Add(&toBalance, value)
 			}
 		case approvalEventID:
 			if len(log.Topics) < 3 {
@@ -86,16 +86,50 @@ func (e *WETH) Process(_ context.Context, logs []types.Log) error {
 			}
 			owner := common.BytesToAddress(log.Topics[1].Bytes())
 			spender := common.BytesToAddress(log.Topics[2].Bytes())
-			value := new(big.Int).SetBytes(log.Data)
+			value := new(uint256.Int).SetBytes(log.Data)
 
 			al, ok := e.Allowances[owner]
 			if !ok {
-				al = make(map[common.Address]big.Int)
+				al = make(map[common.Address]uint256.Int)
 			}
 			al[spender] = *value
 		}
 	}
 	return nil
+}
+
+func initClients(ctx context.Context) (*ethclient.Client, *ethclient.Client, error) {
+	var options []rpc.ClientOption
+
+	if v := os.Getenv("ETH_JWT_SECRET"); v != "" {
+		var secret [32]byte
+		if _, err := hex.Decode(secret[:], []byte(v)); err != nil {
+			return nil, nil, fmt.Errorf("failed to decode secret: %w", err)
+		}
+		options = append(options, rpc.WithHTTPAuth(node.NewJWTAuth(secret)))
+	}
+
+	httpURL := os.Getenv("ETH_HTTP_URL")
+	if httpURL == "" {
+		return nil, nil, fmt.Errorf("missing ETH_HTTP_URL")
+	}
+
+	wsURL := os.Getenv("ETH_WS_URL")
+	if wsURL == "" {
+		return nil, nil, fmt.Errorf("missing ETH_WS_URL")
+	}
+
+	httpR, err := rpc.DialOptions(ctx, httpURL, options...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("dial http: %w", err)
+	}
+
+	wsR, err := rpc.DialOptions(ctx, wsURL, options...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("dial ws: %w", err)
+	}
+
+	return ethclient.NewClient(httpR), ethclient.NewClient(wsR), nil
 }
 
 func run() error {
@@ -104,70 +138,31 @@ func run() error {
 
 	_ = godotenv.Load()
 
-	var options []rpc.ClientOption
-
-	if v := os.Getenv("ETH_JWT_SECRET"); v != "" {
-		var secret [32]byte
-		if _, err := hex.Decode(secret[:], []byte(v)); err != nil {
-			return fmt.Errorf("failed to decode secret: %w", err)
-		}
-		options = append(options, rpc.WithHTTPAuth(node.NewJWTAuth(secret)))
-	}
-
-	httpURL := os.Getenv("ETH_HTTP_URL")
-	if httpURL == "" {
-		return fmt.Errorf("missing ETH_HTTP_URL")
-	}
-
-	wsURL := os.Getenv("ETH_WS_URL")
-	if wsURL == "" {
-		return fmt.Errorf("missing ETH_WS_URL")
-	}
-
-	// HTTP client drives backfilling (eth_getLogs + finalized block headers).
-	httpRPC, err := rpc.DialOptions(ctx, httpURL, options...)
+	httpC, wsC, err := initClients(ctx)
 	if err != nil {
-		return fmt.Errorf("dial http: %w", err)
+		return err
 	}
-	httpClient := ethclient.NewClient(httpRPC)
 
-	// WebSocket client drives live following via new-head subscriptions.
-	wsRPC, err := rpc.DialOptions(ctx, wsURL, options...)
+	store, err := ethindex.NewFileStore(".weth_indexer")
 	if err != nil {
-		return fmt.Errorf("dial ws: %w", err)
-	}
-	wsClient := ethclient.NewClient(wsRPC)
-
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})))
-
-	store, err := ethindex.NewFileStore("./indexer_data")
-	if err != nil {
-		return fmt.Errorf("create store: %w", err)
+		return fmt.Errorf("new store: %w", err)
 	}
 
-	progress := make(chan ethindex.Progress)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case p := <-progress:
-				slog.Info("backfill progress",
-					"block", fmt.Sprintf("%d/%d", p.CurrentBlock, p.EndBlock),
-					"percent", fmt.Sprintf("%%%.2f", p.Percent()))
-			}
-		}
-	}()
+	handler := NewWETH()
 
-	idx, err := ethindex.NewIndexer(ctx, httpClient, NewWETH(), wethFilter, store, &ethindex.Config{ProgressCh: progress})
+	idx, err := ethindex.NewIndexer(ctx, ethindex.Config{
+		Client:  httpC,
+		Handler: handler,
+		Filter:  wethFilter,
+		Store:   store,
+	})
 	if err != nil {
 		return fmt.Errorf("new indexer: %w", err)
 	}
-	close(progress)
 
 	heads := make(chan *types.Header, 128)
 	sub := event.Resubscribe(2*time.Second, func(ctx context.Context) (event.Subscription, error) {
-		return wsClient.SubscribeNewHead(ctx, heads)
+		return wsC.SubscribeNewHead(ctx, heads)
 	})
 	defer sub.Unsubscribe()
 
