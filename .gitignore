@@ -6,4 +6,3 @@
 *.test
 *.pprof
 .env
-fixtures/*
