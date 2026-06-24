@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding"
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -21,7 +22,7 @@ type checkpoint struct {
 	State []byte
 }
 
-var errInvalidCheckpoint = fmt.Errorf("invalid checkpoint")
+var errInvalidCheckpoint = errors.New("invalid checkpoint")
 
 var _ encoding.BinaryUnmarshaler = (*checkpoint)(nil)
 var _ encoding.BinaryMarshaler = (*checkpoint)(nil)

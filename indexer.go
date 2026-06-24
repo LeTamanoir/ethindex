@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math/big"
 	"time"
 
@@ -23,7 +22,7 @@ type Indexer struct {
 	h Handler
 	f Filter
 	s Store
-	l *slog.Logger
+	l Logger
 
 	// Configs
 	maxBlockRange uint64
