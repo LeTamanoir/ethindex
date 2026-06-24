@@ -82,7 +82,7 @@ type Config struct {
 	// Filter specifies which logs the indexer fetches from the client.
 	Filter Filter
 
-	// BlobStore persists checkpoints and handler state.
+	// Store persists checkpoints and handler state.
 	Store Store
 
 	// MaxBlockRange is the maximum block span per backfill RPC call.
@@ -129,8 +129,17 @@ func (c *Config) Validate() error {
 
 // Store defines the persistence methods used by the indexer.
 type Store interface {
+	// Read returns the data stored under key. A missing key is reported as
+	// (nil, nil), not as an error.
 	Read(ctx context.Context, key string) ([]byte, error)
+
+	// Write stores data under key, replacing any existing value.
 	Write(ctx context.Context, key string, blob []byte) error
+
+	// Move atomically renames the data from srcKey to dstKey, replacing any
+	// existing value under dstKey. Implementations should avoid
+	// re-serializing the data; a filesystem rename is the canonical example.
+	// It is used to promote a dangling checkpoint to finalized.
 	Move(ctx context.Context, srcKey, dstKey string) error
 }
 

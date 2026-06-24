@@ -209,6 +209,7 @@ func (idx *Indexer) waitPending(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case err := <-idx.pendingSave:
+		idx.pendingSave = nil
 		return err
 	}
 }
@@ -285,7 +286,7 @@ func (idx *Indexer) checkpoint(ctx context.Context) error {
 		return idx.saveDanglingAsync(ctx)
 	}
 
-	if idx.head.Number > idx.dangling.Number+idx.finalityDepth {
+	if idx.head.Number >= idx.dangling.Number+idx.finalityDepth {
 		return idx.promoteDangling(ctx)
 	}
 
