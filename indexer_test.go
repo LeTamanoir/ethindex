@@ -70,7 +70,11 @@ func TestIndexer_Live(t *testing.T) {
 			}, nil
 		},
 		filterLogsFunc: func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
-			return []types.Log{{BlockNumber: q.FromBlock.Uint64()}}, nil
+			var num uint64
+			if q.FromBlock != nil {
+				num = q.FromBlock.Uint64()
+			}
+			return []types.Log{{BlockNumber: num}}, nil
 		},
 	}
 
@@ -161,7 +165,7 @@ func TestIndexer_Promote(t *testing.T) {
 	}
 
 	// The dangling key should be gone after the move.
-	if d, err := store.Load(ctx, string(dangling)); err != nil {
+	if d, err := store.Read(ctx, string(dangling)); err != nil {
 		t.Fatalf("unexpected error loading dangling: %v", err)
 	} else if d != nil {
 		t.Errorf("expected dangling checkpoint to be moved away, got %d bytes", len(d))
@@ -271,7 +275,7 @@ func TestIndexer_Reorg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Save(t.Context(), string(finalized), cpb); err != nil {
+	if err := store.Write(t.Context(), string(finalized), cpb); err != nil {
 		t.Fatal(err)
 	}
 
@@ -327,7 +331,7 @@ func TestIndexer_Restore(t *testing.T) {
 	}
 
 	store := newMockStore()
-	store.Save(t.Context(), string(finalized), cpb)
+	store.Write(t.Context(), string(finalized), cpb)
 
 	client := &mockClient{
 		headerByNumberFunc: func(ctx context.Context, number *big.Int) (*types.Header, error) {

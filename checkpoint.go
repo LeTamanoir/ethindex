@@ -55,7 +55,7 @@ func saveCheckpoint(ctx context.Context, s Store, k checkpointKind, cp checkpoin
 		return fmt.Errorf("marshal: %w", err)
 	}
 
-	if err := s.Save(ctx, string(k), cpb); err != nil {
+	if err := s.Write(ctx, string(k), cpb); err != nil {
 		return fmt.Errorf("store save: %w", err)
 	}
 
@@ -63,7 +63,7 @@ func saveCheckpoint(ctx context.Context, s Store, k checkpointKind, cp checkpoin
 }
 
 func loadCheckpoint(ctx context.Context, s Store, k checkpointKind) (*checkpoint, bool, error) {
-	cpb, err := s.Load(ctx, string(k))
+	cpb, err := s.Read(ctx, string(k))
 	if err != nil {
 		return nil, false, fmt.Errorf("store load: %w", err)
 	}

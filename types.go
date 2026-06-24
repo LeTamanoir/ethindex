@@ -24,6 +24,25 @@ type Filter struct {
 	Topics [][]common.Hash
 }
 
+// rangeQuery builds a block-range FilterQuery over [from, to].
+func (f Filter) rangeQuery(from, to uint64) ethereum.FilterQuery {
+	return ethereum.FilterQuery{
+		FromBlock: new(big.Int).SetUint64(from),
+		ToBlock:   new(big.Int).SetUint64(to),
+		Addresses: f.Addresses,
+		Topics:    f.Topics,
+	}
+}
+
+// blockQuery builds a single-block FilterQuery anchored to hash.
+func (f Filter) blockQuery(hash common.Hash) ethereum.FilterQuery {
+	return ethereum.FilterQuery{
+		BlockHash: &hash,
+		Addresses: f.Addresses,
+		Topics:    f.Topics,
+	}
+}
+
 // Handler defines the application-specific indexing logic.
 type Handler interface {
 	// Snapshot returns the current handler state for checkpointing.
@@ -63,7 +82,7 @@ type Config struct {
 	// Filter specifies which logs the indexer fetches from the client.
 	Filter Filter
 
-	// Store persists checkpoints and handler state.
+	// BlobStore persists checkpoints and handler state.
 	Store Store
 
 	// MaxBlockRange is the maximum block span per backfill RPC call.
@@ -110,15 +129,17 @@ func (c *Config) Validate() error {
 
 // Store defines the persistence methods used by the indexer.
 type Store interface {
-	// Load returns the data stored under key.
-	Load(ctx context.Context, key string) ([]byte, error)
-
-	// Save stores data under key, replacing any existing value.
-	Save(ctx context.Context, key string, data []byte) error
-
-	// Move atomically renames the data from srcKey to dstKey, replacing any
-	// existing value under dstKey. Implementations should avoid
-	// re-serializing the data; a filesystem rename is the canonical example.
-	// It is used to promote a dangling checkpoint to finalized.
+	Read(ctx context.Context, key string) ([]byte, error)
+	Write(ctx context.Context, key string, blob []byte) error
 	Move(ctx context.Context, srcKey, dstKey string) error
 }
+
+// noopLogger is the default Logger when Config.Logger is nil.
+type noopLogger struct{}
+
+var _ Logger = (*noopLogger)(nil)
+
+func (noopLogger) Debug(string, ...any) {}
+func (noopLogger) Info(string, ...any)  {}
+func (noopLogger) Warn(string, ...any)  {}
+func (noopLogger) Error(string, ...any) {}

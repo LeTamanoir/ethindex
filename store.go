@@ -29,7 +29,7 @@ func (s *FileStore) path(key string) string {
 	return filepath.Join(s.dir, key+".gz")
 }
 
-func (s *FileStore) Load(_ context.Context, key string) ([]byte, error) {
+func (s *FileStore) Read(_ context.Context, key string) ([]byte, error) {
 	f, err := os.Open(s.path(key))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -48,7 +48,7 @@ func (s *FileStore) Load(_ context.Context, key string) ([]byte, error) {
 	return io.ReadAll(gr)
 }
 
-func (s *FileStore) Save(_ context.Context, key string, data []byte) error {
+func (s *FileStore) Write(_ context.Context, key string, data []byte) error {
 	return atomicWrite(s.path(key), func(w io.Writer) error {
 		gw := gzip.NewWriter(w)
 		if _, err := gw.Write(data); err != nil {
@@ -67,4 +67,28 @@ func (s *FileStore) Move(_ context.Context, srcKey, dstKey string) error {
 		return fmt.Errorf("move %q to %q: %w", srcKey, dstKey, err)
 	}
 	return nil
+}
+
+// atomicWrite writes data to a temp file in dir, fsyncs it, then renames it
+// over filename so the destination never appears partially written.
+func atomicWrite(filename string, write func(io.Writer) error) error {
+	dir := filepath.Dir(filename)
+
+	f, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer func() {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+	}()
+
+	if err := write(f); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), filename)
 }

@@ -14,11 +14,11 @@ func TestFileStore_SaveLoad(t *testing.T) {
 	}
 
 	data := []byte("hello world")
-	if err := store.Save(t.Context(), "testkey", data); err != nil {
+	if err := store.Write(t.Context(), "testkey", data); err != nil {
 		t.Fatalf("failed to save: %v", err)
 	}
 
-	loaded, err := store.Load(t.Context(), "testkey")
+	loaded, err := store.Read(t.Context(), "testkey")
 	if err != nil {
 		t.Fatalf("failed to load: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestFileStore_LoadNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loaded, err := store.Load(t.Context(), "missingkey")
+	loaded, err := store.Read(t.Context(), "missingkey")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestFileStore_Move(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := store.Save(t.Context(), "src", []byte("hello")); err != nil {
+	if err := store.Write(t.Context(), "src", []byte("hello")); err != nil {
 		t.Fatalf("failed to save: %v", err)
 	}
 
@@ -61,7 +61,7 @@ func TestFileStore_Move(t *testing.T) {
 		t.Fatalf("failed to move: %v", err)
 	}
 
-	loaded, err := store.Load(t.Context(), "dst")
+	loaded, err := store.Read(t.Context(), "dst")
 	if err != nil {
 		t.Fatalf("failed to load moved data: %v", err)
 	}
