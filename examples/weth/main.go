@@ -152,14 +152,9 @@ func run() error {
 
 	handler := NewWETH()
 
-	idx, err := ethindex.NewIndexer(ctx, ethindex.Config{
-		Client:  httpC,
-		Handler: handler,
-		Filter:  wethFilter,
-		Store:   store,
-	})
-	if err != nil {
-		return fmt.Errorf("new indexer: %w", err)
+	idx := ethindex.NewIndexer(httpC, handler, wethFilter, store, slog.Default(), ethindex.Config{})
+	if err := idx.Sync(ctx); err != nil {
+		return fmt.Errorf("sync indexer: %w", err)
 	}
 
 	heads := make(chan *types.Header, 128)
