@@ -65,18 +65,6 @@ type Handler interface {
 }
 ```
 
-```go
-type myHandler struct{}
-
-func (h *myHandler) Filter() ethindex.Filter {
-	return ethindex.Filter{
-		FromBlock: 18_000_000,
-		Addresses: []common.Address{contractAddr},
-		Topics:    [][]common.Hash{{eventTopic}},
-	}
-}
-```
-
 See [`examples/weth`](examples/weth) for a full example.
 
 ## Config
