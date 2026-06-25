@@ -16,17 +16,17 @@ type BlockRef struct {
 	Hash   common.Hash
 }
 
-// Filter specifies the Ethereum logs to fetch during indexing.
+// Filter specifies which logs the indexer fetches.
 type Filter struct {
-	// FromBlock is the first block included in the initial backfill.
+	// FromBlock is the first block to index.
 	FromBlock uint64
 
-	// Addresses restricts log collection to the given contract addresses.
-	// See [ethereum.FilterQuery.Addresses] for more details.
+	// Addresses restrict logs to the given contract addresses.
+	// See [ethereum.FilterQuery.Addresses].
 	Addresses []common.Address
 
-	// Topics filters logs by their indexed event topics.
-	// See [ethereum.FilterQuery.Topics] for more details.
+	// Topics restrict logs by indexed event topics.
+	// See [ethereum.FilterQuery.Topics].
 	Topics [][]common.Hash
 }
 
@@ -51,22 +51,23 @@ func (f Filter) blockQuery(hash common.Hash) ethereum.FilterQuery {
 
 // Handler defines the application-specific indexing logic.
 type Handler interface {
-	// Snapshot returns the current handler state for checkpointing.
+	// Snapshot returns the current handler state.
 	Snapshot(context.Context) ([]byte, error)
 
-	// Restore restores the handler state from a checkpoint snapshot.
+	// Restore restores a previously captured state.
 	Restore(context.Context, []byte) error
 
-	// Process processes matching logs in block order.
+	// Process applies matching logs in block order.
 	Process(context.Context, []types.Log) error
 }
 
-// Client defines the Ethereum RPC methods required by the indexer.
+// Client provides access to Ethereum logs and block headers.
 type Client interface {
 	FilterLogs(context.Context, ethereum.FilterQuery) ([]types.Log, error)
 	HeaderByNumber(context.Context, *big.Int) (*types.Header, error)
 }
 
+// Logger records operational messages.
 type Logger interface {
 	Debug(msg string, args ...any)
 	Info(msg string, args ...any)
@@ -74,37 +75,37 @@ type Logger interface {
 	Error(msg string, args ...any)
 }
 
-// Config configures the indexer.
+// Config holds the indexer's configuration.
 type Config struct {
-	// Client is the Ethereum RPC client used to fetch logs and headers.
+	// Client fetches logs and block headers.
 	Client Client
 
 	// Logger records operational messages.
 	Logger Logger
 
-	// Handler processes matching logs and manages checkpoint state.
+	// Handler processes matching logs and snapshots state.
 	Handler Handler
 
-	// Filter specifies which logs the indexer fetches from the client.
+	// Filter specifies which logs the indexer fetches.
 	Filter Filter
 
 	// Store persists checkpoints and handler state.
 	Store Store
 
-	// MaxBlockRange is the maximum block span per backfill RPC call.
-	// The default is 10,000.
+	// MaxBlockRange is the maximum block span per backfill request.
+	// Defaults to 10,000.
 	MaxBlockRange uint64
 
 	// FinalityDepth is the block depth considered finalized.
-	// The default is 64.
+	// Defaults to 64.
 	FinalityDepth uint64
 
-	// MaxConcurrency bounds the number of concurrent RPC calls when
-	// fetching missing headers after a gap (e.g. on reconnect).
-	// The default is 16.
+	// MaxConcurrency bounds concurrent header fetches.
+	// Defaults to 16.
 	MaxConcurrency int
 }
 
+// Validate checks required fields and applies defaults.
 func (c *Config) Validate() error {
 	if c.Client == nil {
 		return fmt.Errorf("client is required")
@@ -133,19 +134,16 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// Store defines the persistence methods used by the indexer.
+// Store provides keyed byte storage.
 type Store interface {
-	// Read returns the data stored under key. A missing key is reported as
-	// (nil, nil), not as an error.
+	// Read returns the data stored under key. A missing key returns (nil, nil).
 	Read(ctx context.Context, key string) ([]byte, error)
 
 	// Write stores data under key, replacing any existing value.
 	Write(ctx context.Context, key string, blob []byte) error
 
-	// Move atomically renames the data from srcKey to dstKey, replacing any
-	// existing value under dstKey. Implementations should avoid
-	// re-serializing the data; a filesystem rename is the canonical example.
-	// It is used to promote a dangling checkpoint to finalized.
+	// Move atomically transfers data from srcKey to dstKey, replacing any
+	// existing value under dstKey.
 	Move(ctx context.Context, srcKey, dstKey string) error
 }
 

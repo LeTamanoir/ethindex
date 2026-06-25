@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
+// Logs is a slice of Ethereum logs that supports binary marshaling.
 type Logs []types.Log
 
 var errInvalidLogs = errors.New("invalid logs")

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 )
 
-// FileStore implements Store using gzip-compressed files in a directory.
+// FileStore implements Store using files in a directory.
 type FileStore struct {
 	dir string
 }
@@ -69,8 +69,8 @@ func (s *FileStore) Move(_ context.Context, srcKey, dstKey string) error {
 	return nil
 }
 
-// atomicWrite writes data to a temp file in dir, fsyncs it, then renames it
-// over filename so the destination never appears partially written.
+// atomicWrite writes to a temp file, fsyncs it, then renames it over
+// filename so the destination never appears partially written.
 func atomicWrite(filename string, write func(io.Writer) error) error {
 	dir := filepath.Dir(filename)
 

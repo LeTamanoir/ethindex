@@ -178,7 +178,6 @@ func TestIndexer_Promote(t *testing.T) {
 
 // TestIndexer_PromoteGuardNoDangling verifies that the promote check does
 // not fire when idx.dangling is zero, even if head.Number >= finalityDepth.
-// This is the crash scenario from examples/logs.txt line 117.
 func TestIndexer_PromoteGuardNoDangling(t *testing.T) {
 	ctx := t.Context()
 

@@ -31,8 +31,8 @@ type Indexer struct {
 
 	// State
 	head        BlockRef
-	dangling    BlockRef   // latest dangling checkpoint saved.
-	pendingSave chan error // in-flight async dangling checkpoint save.
+	dangling    BlockRef   // head of the pending dangling checkpoint
+	pendingSave chan error // delivers the pending dangling save result
 }
 
 // NewIndexer builds the indexer, restores the finalized checkpoint, backfills
@@ -144,7 +144,7 @@ func (idx *Indexer) sync(ctx context.Context) error {
 	return nil
 }
 
-// process handles a single received head, dispatching to fillGap/handleReorg/processHead.
+// process handles a single received head.
 func (idx *Indexer) process(ctx context.Context, h *types.Header) error {
 	idxNum := idx.head.Number
 	headNum := h.Number.Uint64()
@@ -233,8 +233,7 @@ func (idx *Indexer) handleReorg(ctx context.Context, h *types.Header) error {
 	return idx.process(ctx, h)
 }
 
-// applyCheckpoint applies the handler state from a checkpoint snapshot
-// and records the restored head.
+// applyCheckpoint restores handler state from a checkpoint and records the head.
 func (idx *Indexer) applyCheckpoint(ctx context.Context, cp *checkpoint) error {
 	start := time.Now()
 
@@ -251,7 +250,7 @@ func (idx *Indexer) applyCheckpoint(ctx context.Context, cp *checkpoint) error {
 	return nil
 }
 
-// process handles a new header and assumes it is strictly consecutive to idx.head.
+// processHead handles a new header and assumes it is strictly consecutive to idx.head.
 func (idx *Indexer) processHead(ctx context.Context, h *types.Header) error {
 	start := time.Now()
 
@@ -308,7 +307,7 @@ func (idx *Indexer) promoteDangling(ctx context.Context) error {
 	return nil
 }
 
-// saveDanglingAsync spawns a goroutine that persists a dangling checkpoint.
+// saveDanglingAsync persists a dangling checkpoint asynchronously.
 func (idx *Indexer) saveDanglingAsync(ctx context.Context) error {
 	start := time.Now()
 
@@ -375,8 +374,7 @@ func (idx *Indexer) headersRange(ctx context.Context, from, to uint64) ([]*types
 	return heads, nil
 }
 
-// logsRange returns logs for [from, to], serving from the cache when present
-// and fetching+caching from the client on miss.
+// logsRange returns logs for [from, to], caching fetched results.
 func (idx *Indexer) logsRange(ctx context.Context, from, to uint64) ([]types.Log, error) {
 	q := idx.f.rangeQuery(from, to)
 
@@ -401,7 +399,7 @@ func (idx *Indexer) logsRange(ctx context.Context, from, to uint64) ([]types.Log
 }
 
 // backfill fetches logs in chunks over [from, to] and processes them in order,
-// caching each chunk on disk so a restart can resume without re-fetching.
+// caching each chunk so a restart can resume without re-fetching.
 func (idx *Indexer) backfill(ctx context.Context, from, to uint64) error {
 	chunks := chunkBlockRange(from, to, idx.maxBlockRange)
 
