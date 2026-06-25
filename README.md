@@ -55,12 +55,10 @@ for {
 }
 ```
 
-Implement `Handler` with your indexing logic. The handler owns its `Filter`,
-which tells the indexer which logs to fetch:
+Implement `Handler` with your indexing logic:
 
 ```go
 type Handler interface {
-	Filter() Filter
 	Snapshot(context.Context) ([]byte, error)
 	Restore(context.Context, []byte) error
 	Process(context.Context, []types.Log) error
