@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
+// Logs is a slice of Ethereum logs that supports binary marshaling.
 type Logs []types.Log
 
 var errInvalidLogs = errors.New("invalid logs")
@@ -179,29 +180,8 @@ func logsKey(q ethereum.FilterQuery) string {
 	return fmt.Sprintf("logs-%d-%d-%s", q.FromBlock, q.ToBlock, hash)
 }
 
-func cachedFilterLogs(ctx context.Context, c Client, s Store, q ethereum.FilterQuery) ([]types.Log, error) {
-	cached, err := loadLogs(ctx, s, q)
-	if err != nil {
-		return nil, fmt.Errorf("load logs: %w", err)
-	}
-	if cached != nil {
-		return cached, nil
-	}
-
-	logs, err := c.FilterLogs(ctx, q)
-	if err != nil {
-		return nil, fmt.Errorf("filter logs: %w", err)
-	}
-
-	if err := saveLogs(ctx, s, q, logs); err != nil {
-		return nil, fmt.Errorf("save logs: %w", err)
-	}
-
-	return logs, nil
-}
-
 func loadLogs(ctx context.Context, s Store, q ethereum.FilterQuery) ([]types.Log, error) {
-	b, err := s.Load(ctx, logsKey(q))
+	b, err := s.Read(ctx, logsKey(q))
 	if err != nil {
 		return nil, fmt.Errorf("store load: %w", err)
 	}
@@ -221,7 +201,7 @@ func saveLogs(ctx context.Context, s Store, q ethereum.FilterQuery, logs []types
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}
-	if err := s.Save(ctx, logsKey(q), b); err != nil {
+	if err := s.Write(ctx, logsKey(q), b); err != nil {
 		return fmt.Errorf("store save: %w", err)
 	}
 	return nil

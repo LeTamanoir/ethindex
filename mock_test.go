@@ -78,7 +78,7 @@ func newMockStore() *mockStore {
 	}
 }
 
-func (m *mockStore) Load(_ context.Context, name string) ([]byte, error) {
+func (m *mockStore) Read(_ context.Context, name string) ([]byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	val, ok := m.store[name]
@@ -88,7 +88,7 @@ func (m *mockStore) Load(_ context.Context, name string) ([]byte, error) {
 	return val, nil
 }
 
-func (m *mockStore) Save(_ context.Context, name string, data []byte) error {
+func (m *mockStore) Write(_ context.Context, name string, data []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.store[name] = data
