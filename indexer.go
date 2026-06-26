@@ -4,20 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
-	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rpc"
 	"golang.org/x/sync/errgroup"
-)
-
-const (
-	stateNone uint32 = iota
-	stateSyncing
-	stateProcessing
-	stateIdling
 )
 
 // Indexer indexes Ethereum logs from a finalized block onward, handling reorgs and checkpointing.
@@ -32,16 +25,18 @@ type Indexer struct {
 	maxBlockRange uint64
 	maxConcurrent int
 
-	state       atomic.Uint32 // none -> syncing -> idling -> processing -> idling
+	synced      bool
 	head        BlockRef
 	dangling    BlockRef   // head of the pending dangling checkpoint
 	pendingSave chan error // delivers the pending dangling save result
 }
 
-// NewIndexer builds the indexer. Call [Indexer.Sync] to restore the finalized
-// checkpoint and backfill to the node's current finalized block.
+// NewIndexer builds the indexer.
 func NewIndexer(c Client, h Handler, f Filter, s Store, l Logger, cfg Config) *Indexer {
 	cfg.applyDefaults()
+	if l == nil {
+		l = slog.Default()
+	}
 	return &Indexer{
 		c: c,
 		h: h,
@@ -57,14 +52,15 @@ func NewIndexer(c Client, h Handler, f Filter, s Store, l Logger, cfg Config) *I
 
 // Sync restores state and catches up to the current finalized head.
 func (i *Indexer) Sync(ctx context.Context) error {
-	if !i.state.CompareAndSwap(stateNone, stateSyncing) {
-		panic("Sync called more than once")
+	if i.synced {
+		return nil
 	}
 
-	i.info("Syncing indexer",
+	i.l.Info("Syncing indexer",
 		"from_block", i.f.FromBlock,
 		"finality_depth", i.finalityDepth,
-		"max_block_range", i.maxBlockRange)
+		"max_block_range", i.maxBlockRange,
+		"max_concurent", i.maxConcurrent)
 
 	if err := i.restore(ctx); err != nil {
 		return err
@@ -74,21 +70,41 @@ func (i *Indexer) Sync(ctx context.Context) error {
 		return err
 	}
 
-	i.info("indexer ready", "head", i.head.Number)
+	i.l.Info("Indexer ready", "head", i.head.Number)
 
-	i.state.Store(stateIdling)
+	i.synced = true
 
 	return nil
 }
 
 // Process ingests a new head and handles gaps and reorgs.
 func (i *Indexer) Process(ctx context.Context, h *types.Header) error {
-	if !i.state.CompareAndSwap(stateIdling, stateProcessing) {
-		panic("Process called before Sync or concurrently with another Process")
+	if !i.synced {
+		return errors.New("indexer is not synced")
 	}
-	defer i.state.Store(stateIdling)
 
-	return i.process(ctx, h)
+	idxNum := i.head.Number
+	headNum := h.Number.Uint64()
+
+	if headNum <= idxNum {
+		i.l.Warn("Ignoring older head",
+			"current", idxNum,
+			"received", headNum)
+
+		return nil
+	}
+
+	// Ensure contiguous block processing.
+	if headNum != idxNum+1 {
+		return i.backfillUnfinalized(ctx, idxNum+1, headNum)
+	}
+
+	// Ensure chain continuity.
+	if i.head.Hash != h.ParentHash {
+		return i.handleReorg(ctx, h)
+	}
+
+	return i.processHead(ctx, h)
 }
 
 // restore loads and applies the finalized checkpoint, if one exists.
@@ -100,7 +116,7 @@ func (i *Indexer) restore(ctx context.Context) error {
 	if !ok {
 		return nil
 	}
-	return i.applyCheckpoint(ctx, cp)
+	return i.restoreCheckpoint(ctx, cp)
 }
 
 // sync backfills from the restored head (or FromBlock on a fresh
@@ -111,7 +127,7 @@ func (i *Indexer) sync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	i.debug("Fetched finalized header",
+	i.l.Debug("Fetched finalized header",
 		"number", final.Number.Uint64(),
 		"duration", time.Since(start))
 
@@ -122,12 +138,12 @@ func (i *Indexer) sync(ctx context.Context) error {
 	to := final.Number.Uint64()
 
 	if from > to {
-		i.info("No backfill required", "head", i.head.Number, "finalized", to)
+		i.l.Info("No backfill required", "head", i.head.Number, "finalized", to)
 
 		return nil
 	}
 
-	if err := i.backfill(ctx, from, to); err != nil {
+	if err := i.backfillFinalized(ctx, from, to); err != nil {
 		return fmt.Errorf("backfill: %w", err)
 	}
 
@@ -146,7 +162,7 @@ func (i *Indexer) sync(ctx context.Context) error {
 	}
 	saveDur := time.Since(saveSt)
 
-	i.info("Saved finalized checkpoint",
+	i.l.Info("Saved finalized checkpoint",
 		"head", i.head.Number,
 		"snapshot", snapDur,
 		"save", saveDur)
@@ -154,39 +170,11 @@ func (i *Indexer) sync(ctx context.Context) error {
 	return nil
 }
 
-// process handles a single received head.
-func (i *Indexer) process(ctx context.Context, h *types.Header) error {
-	idxNum := i.head.Number
-	headNum := h.Number.Uint64()
-
-	if headNum <= idxNum {
-		i.warn("ignoring old head",
-			"current", idxNum,
-			"received", headNum)
-
-		return nil
-	}
-
-	// Fill any gap between the current head and the received head.
-	if headNum != idxNum+1 {
-		return i.fillGap(ctx, idxNum+1, headNum)
-	}
-
-	// Roll back to the finalized checkpoint on a parent-hash mismatch.
-	if i.head.Hash != h.ParentHash {
-		i.warn("reorg detected",
-			"head", i.head.Number,
-			"expected_parent", i.head.Hash,
-			"got_parent", h.ParentHash)
-
-		return i.handleReorg(ctx, h)
-	}
-
-	return i.processHead(ctx, h)
-}
-
-// fillGap fetches and processes the missing headers between from and to.
-func (i *Indexer) fillGap(ctx context.Context, from, to uint64) error {
+// backfillUnfinalized fetches and processes the missing headers in [from, to].
+//
+// The range is assumed to be unfinalized, so each header is fetched
+// individually and logs are queried by block hash to preserve reorg safety.
+func (i *Indexer) backfillUnfinalized(ctx context.Context, from, to uint64) error {
 	start := time.Now()
 
 	heads, err := i.headersRange(ctx, from, to)
@@ -194,10 +182,13 @@ func (i *Indexer) fillGap(ctx context.Context, from, to uint64) error {
 		return fmt.Errorf("headers range: %w", err)
 	}
 
-	i.info("filled missing heads", "from", from, "to", to, "duration", time.Since(start))
+	i.l.Info("Filled missing heads",
+		"from", from,
+		"to", to,
+		"duration", time.Since(start))
 
 	for _, h := range heads {
-		if err := i.process(ctx, h); err != nil {
+		if err := i.Process(ctx, h); err != nil {
 			return err
 		}
 	}
@@ -225,6 +216,11 @@ func (i *Indexer) handleReorg(ctx context.Context, h *types.Header) error {
 		return err
 	}
 
+	i.l.Warn("Reorg detected",
+		"head", i.head.Number,
+		"expected_parent", i.head.Hash,
+		"got_parent", h.ParentHash)
+
 	i.head = BlockRef{}
 	i.dangling = BlockRef{}
 
@@ -236,15 +232,15 @@ func (i *Indexer) handleReorg(ctx context.Context, h *types.Header) error {
 		return errors.New("reorg detected but no finalized checkpoint found")
 	}
 
-	if err := i.applyCheckpoint(ctx, cp); err != nil {
+	if err := i.restoreCheckpoint(ctx, cp); err != nil {
 		return err
 	}
 
-	return i.process(ctx, h)
+	return i.Process(ctx, h)
 }
 
-// applyCheckpoint restores handler state from a checkpoint and records the head.
-func (i *Indexer) applyCheckpoint(ctx context.Context, cp *checkpoint) error {
+// restoreCheckpoint restores handler state from a checkpoint and records the head.
+func (i *Indexer) restoreCheckpoint(ctx context.Context, cp *checkpoint) error {
 	start := time.Now()
 
 	if err := i.h.Restore(ctx, cp.State); err != nil {
@@ -253,7 +249,7 @@ func (i *Indexer) applyCheckpoint(ctx context.Context, cp *checkpoint) error {
 
 	i.head = cp.Head
 
-	i.info("restored from finalized checkpoint",
+	i.l.Info("Restored from finalized checkpoint",
 		"head", cp.Head.Number,
 		"duration", time.Since(start))
 
@@ -275,7 +271,7 @@ func (i *Indexer) processHead(ctx context.Context, h *types.Header) error {
 
 	i.head = BlockRef{Number: h.Number.Uint64(), Hash: h.Hash()}
 
-	i.debug("processed head",
+	i.l.Debug("Processed new head",
 		"number", h.Number.Uint64(),
 		"logs", len(logs),
 		"duration", time.Since(start))
@@ -308,7 +304,7 @@ func (i *Indexer) promoteDangling(ctx context.Context) error {
 		return fmt.Errorf("move: %w", err)
 	}
 
-	i.info("promoted dangling checkpoint to finalized",
+	i.l.Info("Promoted dangling checkpoint to finalized",
 		"head", i.dangling.Number,
 		"duration", time.Since(start))
 
@@ -337,11 +333,11 @@ func (i *Indexer) saveDanglingAsync(ctx context.Context) error {
 		err := saveCheckpoint(ctx, i.s, dangling, cp)
 
 		if err != nil {
-			i.error("async save dangling failed",
+			i.l.Error("Async save dangling failed",
 				"head", cp.Head.Number,
 				"error", err)
 		} else {
-			i.debug("saved dangling checkpoint",
+			i.l.Debug("Saved dangling checkpoint",
 				"head", cp.Head.Number,
 				"snapshot", snapDur,
 				"save", time.Since(saveSt),
@@ -408,12 +404,15 @@ func (i *Indexer) logsRange(ctx context.Context, from, to uint64) ([]types.Log, 
 	return logs, nil
 }
 
-// backfill fetches logs in chunks over [from, to] and processes them in order,
-// caching each chunk so a restart can resume without re-fetching.
-func (i *Indexer) backfill(ctx context.Context, from, to uint64) error {
+// backfillFinalized fetches and processes logs over [from, to] in chunks.
+//
+// The range is assumed to be finalized, allowing logs to be queried by block
+// range with FilterLogs instead of by block hash. This is more efficient but
+// does not provide reorg safety.
+func (i *Indexer) backfillFinalized(ctx context.Context, from, to uint64) error {
 	chunks := chunkBlockRange(from, to, i.maxBlockRange)
 
-	i.info("backfilling",
+	i.l.Info("Backfilling",
 		"from", from,
 		"to", to,
 		"chunks", len(chunks))
@@ -436,41 +435,17 @@ func (i *Indexer) backfill(ctx context.Context, from, to uint64) error {
 			return fmt.Errorf("process logs: %w", err)
 		}
 
-		i.debug("backfill chunk processed",
+		i.l.Debug("Backfill chunk processed",
 			"from", ch.from,
 			"to", ch.to,
 			"logs", len(logs),
 			"duration", time.Since(chStart))
 	}
 
-	i.info("backfill complete",
+	i.l.Info("Backfill complete",
 		"from", from,
 		"to", to,
 		"duration", time.Since(start))
 
 	return nil
-}
-
-func (i *Indexer) info(msg string, args ...any) {
-	if i.l != nil {
-		i.l.Info(msg, args...)
-	}
-}
-
-func (i *Indexer) debug(msg string, args ...any) {
-	if i.l != nil {
-		i.l.Debug(msg, args...)
-	}
-}
-
-func (i *Indexer) warn(msg string, args ...any) {
-	if i.l != nil {
-		i.l.Warn(msg, args...)
-	}
-}
-
-func (i *Indexer) error(msg string, args ...any) {
-	if i.l != nil {
-		i.l.Error(msg, args...)
-	}
 }
