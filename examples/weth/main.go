@@ -145,14 +145,15 @@ func run() error {
 		return err
 	}
 
-	store, err := ethindex.NewFileStore(".weth_indexer")
+	store, err := ethindex.NewFileCheckpointStore(".weth/checkpoints")
 	if err != nil {
 		return fmt.Errorf("new store: %w", err)
 	}
 
+	cc := ethindex.NewCachedClient(httpC, ".weth/logs")
 	handler := NewWETH()
 
-	idx := ethindex.NewIndexer(httpC, handler, wethFilter, store, slog.Default(), ethindex.Config{})
+	idx := ethindex.NewIndexer(cc, handler, wethFilter, store, nil)
 	if err := idx.Sync(ctx); err != nil {
 		return fmt.Errorf("sync indexer: %w", err)
 	}

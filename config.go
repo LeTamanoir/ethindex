@@ -16,6 +16,9 @@ type Config struct {
 }
 
 func (c *Config) applyDefaults() {
+	if c == nil {
+		*c = Config{}
+	}
 	if c.FinalityDepth == 0 {
 		c.FinalityDepth = 64
 	}
