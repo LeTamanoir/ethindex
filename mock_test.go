@@ -19,6 +19,9 @@ func testLogger() *slog.Logger {
 type mockClient struct {
 	headerByNumberFunc func(ctx context.Context, number *big.Int) (*types.Header, error)
 	filterLogsFunc     func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
+
+	mu              sync.Mutex
+	filterLogsCalls int
 }
 
 func (m *mockClient) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
@@ -29,10 +32,21 @@ func (m *mockClient) HeaderByNumber(ctx context.Context, number *big.Int) (*type
 }
 
 func (m *mockClient) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+	m.mu.Lock()
+	m.filterLogsCalls++
+	m.mu.Unlock()
+
 	if m.filterLogsFunc != nil {
 		return m.filterLogsFunc(ctx, q)
 	}
 	return nil, nil
+}
+
+// filterLogsCallCount returns the number of times FilterLogs has been invoked.
+func (m *mockClient) filterLogsCallCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.filterLogsCalls
 }
 
 type mockHandler struct {
@@ -68,8 +82,10 @@ func (m *mockHandler) Process(ctx context.Context, logs []types.Log) error {
 }
 
 type mockStore struct {
-	mu    sync.Mutex
-	store map[string][]byte
+	mu       sync.Mutex
+	store    map[string][]byte
+	writeErr error
+	moveErr  error
 }
 
 func newMockStore() *mockStore {
@@ -91,6 +107,9 @@ func (m *mockStore) Read(_ context.Context, name string) ([]byte, error) {
 func (m *mockStore) Write(_ context.Context, name string, data []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.writeErr != nil {
+		return m.writeErr
+	}
 	m.store[name] = data
 	return nil
 }
@@ -98,6 +117,9 @@ func (m *mockStore) Write(_ context.Context, name string, data []byte) error {
 func (m *mockStore) Move(_ context.Context, srcKey, dstKey string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.moveErr != nil {
+		return m.moveErr
+	}
 	val, ok := m.store[srcKey]
 	if !ok {
 		return fmt.Errorf("move %q: not found", srcKey)

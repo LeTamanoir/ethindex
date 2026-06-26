@@ -66,7 +66,7 @@ func (i *Indexer) Sync(ctx context.Context) error {
 		"finality_depth", i.finalityDepth,
 		"max_block_range", i.maxBlockRange)
 
-	if err := i.restore(ctx); err != nil {
+	if _, err := i.restore(ctx); err != nil {
 		return err
 	}
 
@@ -92,15 +92,27 @@ func (i *Indexer) Process(ctx context.Context, h *types.Header) error {
 }
 
 // restore loads and applies the finalized checkpoint, if one exists.
-func (i *Indexer) restore(ctx context.Context) error {
+func (i *Indexer) restore(ctx context.Context) (exists bool, err error) {
 	cp, ok, err := loadCheckpoint(ctx, i.s, finalized)
 	if err != nil {
-		return fmt.Errorf("load finalized: %w", err)
+		return false, fmt.Errorf("load finalized: %w", err)
 	}
 	if !ok {
-		return nil
+		return false, nil
 	}
-	return i.applyCheckpoint(ctx, cp)
+
+	start := time.Now()
+	if err := i.h.Restore(ctx, cp.State); err != nil {
+		return false, fmt.Errorf("handler: %w", err)
+	}
+
+	i.head = cp.Head
+
+	i.info("Restored finalized checkpoint",
+		"head", cp.Head.Number,
+		"duration", time.Since(start))
+
+	return true, nil
 }
 
 // sync backfills from the restored head (or FromBlock on a fresh
@@ -194,7 +206,10 @@ func (i *Indexer) fillGap(ctx context.Context, from, to uint64) error {
 		return fmt.Errorf("headers range: %w", err)
 	}
 
-	i.info("filled missing heads", "from", from, "to", to, "duration", time.Since(start))
+	i.info("filled missing heads",
+		"from", from,
+		"to", to,
+		"duration", time.Since(start))
 
 	for _, h := range heads {
 		if err := i.process(ctx, h); err != nil {
@@ -228,36 +243,15 @@ func (i *Indexer) handleReorg(ctx context.Context, h *types.Header) error {
 	i.head = BlockRef{}
 	i.dangling = BlockRef{}
 
-	cp, ok, err := loadCheckpoint(ctx, i.s, finalized)
+	ok, err := i.restore(ctx)
 	if err != nil {
-		return fmt.Errorf("load finalized: %w", err)
+		return fmt.Errorf("restore: %w", err)
 	}
 	if !ok {
 		return errors.New("reorg detected but no finalized checkpoint found")
 	}
 
-	if err := i.applyCheckpoint(ctx, cp); err != nil {
-		return err
-	}
-
 	return i.process(ctx, h)
-}
-
-// applyCheckpoint restores handler state from a checkpoint and records the head.
-func (i *Indexer) applyCheckpoint(ctx context.Context, cp *checkpoint) error {
-	start := time.Now()
-
-	if err := i.h.Restore(ctx, cp.State); err != nil {
-		return fmt.Errorf("restore: %w", err)
-	}
-
-	i.head = cp.Head
-
-	i.info("restored from finalized checkpoint",
-		"head", cp.Head.Number,
-		"duration", time.Since(start))
-
-	return nil
 }
 
 // processHead handles a new header and assumes it is strictly consecutive to idx.head.
@@ -275,7 +269,7 @@ func (i *Indexer) processHead(ctx context.Context, h *types.Header) error {
 
 	i.head = BlockRef{Number: h.Number.Uint64(), Hash: h.Hash()}
 
-	i.debug("processed head",
+	i.debug("Processed new head",
 		"number", h.Number.Uint64(),
 		"logs", len(logs),
 		"duration", time.Since(start))
@@ -308,7 +302,7 @@ func (i *Indexer) promoteDangling(ctx context.Context) error {
 		return fmt.Errorf("move: %w", err)
 	}
 
-	i.info("promoted dangling checkpoint to finalized",
+	i.info("Promoted dangling checkpoint to finalized",
 		"head", i.dangling.Number,
 		"duration", time.Since(start))
 
@@ -337,11 +331,11 @@ func (i *Indexer) saveDanglingAsync(ctx context.Context) error {
 		err := saveCheckpoint(ctx, i.s, dangling, cp)
 
 		if err != nil {
-			i.error("async save dangling failed",
+			i.error("Async save dangling failed",
 				"head", cp.Head.Number,
 				"error", err)
 		} else {
-			i.debug("saved dangling checkpoint",
+			i.debug("Saved dangling checkpoint",
 				"head", cp.Head.Number,
 				"snapshot", snapDur,
 				"save", time.Since(saveSt),
@@ -413,7 +407,7 @@ func (i *Indexer) logsRange(ctx context.Context, from, to uint64) ([]types.Log, 
 func (i *Indexer) backfill(ctx context.Context, from, to uint64) error {
 	chunks := chunkBlockRange(from, to, i.maxBlockRange)
 
-	i.info("backfilling",
+	i.info("Backfilling",
 		"from", from,
 		"to", to,
 		"chunks", len(chunks))
@@ -436,14 +430,14 @@ func (i *Indexer) backfill(ctx context.Context, from, to uint64) error {
 			return fmt.Errorf("process logs: %w", err)
 		}
 
-		i.debug("backfill chunk processed",
+		i.debug("Backfill chunk processed",
 			"from", ch.from,
 			"to", ch.to,
 			"logs", len(logs),
 			"duration", time.Since(chStart))
 	}
 
-	i.info("backfill complete",
+	i.info("Backfill complete",
 		"from", from,
 		"to", to,
 		"duration", time.Since(start))

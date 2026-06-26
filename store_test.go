@@ -85,3 +85,106 @@ func TestFileStore_MoveMissingSource(t *testing.T) {
 		t.Fatal("expected error moving missing source, got nil")
 	}
 }
+
+func TestFileStore_WriteOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.Write(t.Context(), "k", []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Write(t.Context(), "k", []byte("second")); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := store.Read(t.Context(), "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(loaded) != "second" {
+		t.Errorf("after overwrite got %q, want %q", loaded, "second")
+	}
+}
+
+func TestFileStore_WriteEmptyData(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.Write(t.Context(), "k", []byte{}); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := store.Read(t.Context(), "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded == nil {
+		t.Fatal("expected empty (non-nil) slice, got nil")
+	}
+	if len(loaded) != 0 {
+		t.Errorf("expected empty slice, got %q", loaded)
+	}
+}
+
+func TestFileStore_MoveOverwritesDestination(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.Write(t.Context(), "src", []byte("from-src")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Write(t.Context(), "dst", []byte("from-dst")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.Move(t.Context(), "src", "dst"); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+
+	loaded, err := store.Read(t.Context(), "dst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(loaded) != "from-src" {
+		t.Errorf("after move got %q, want %q", loaded, "from-src")
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "src.gz")); !os.IsNotExist(err) {
+		t.Errorf("expected source removed, got error: %v", err)
+	}
+}
+
+func TestFileStore_NewFileStoreExistingDir(t *testing.T) {
+	dir := t.TempDir()
+
+	// First call creates the directory.
+	if _, err := NewFileStore(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second call on the same directory must succeed (MkdirAll is idempotent).
+	store, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("second NewFileStore: %v", err)
+	}
+
+	if err := store.Write(t.Context(), "k", []byte("ok")); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Read(t.Context(), "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(loaded) != "ok" {
+		t.Errorf("got %q, want %q", loaded, "ok")
+	}
+}
