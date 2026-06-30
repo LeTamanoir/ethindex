@@ -15,61 +15,6 @@ go get github.com/letamanoir/ethindex
 
 ## Usage
 
-```go
-ctx := context.Background()
-
-client, err := ethclient.DialContext(ctx, "http://127.0.0.1:8545")
-if err != nil {
-	log.Fatal(err)
-}
-
-store, err := ethindex.NewFileStore("./indexer_data")
-if err != nil {
-	log.Fatal(err)
-}
-
-idx := ethindex.NewIndexer(client, myHandler, store, nil, ethindex.Config{})
-
-if err := idx.Sync(ctx); err != nil {
-	log.Fatal(err)
-}
-
-heads := make(chan *types.Header, 128)
-
-sub, err := client.SubscribeNewHead(ctx, heads)
-if err != nil {
-	log.Fatal(err)
-}
-defer sub.Unsubscribe()
-
-for {
-	select {
-	case <-ctx.Done():
-		return
-
-	case err := <-sub.Err():
-		log.Fatal(err)
-
-	case h := <-heads:
-		if err := idx.Process(ctx, h); err != nil {
-			log.Fatal(err)
-		}
-
-		// Read handler state here.
-	}
-}
-```
-
-Implement `Handler` with your indexing logic:
-
-```go
-type Handler interface {
-	Process(context.Context, []types.Log) error
-	Snapshot(context.Context) ([]byte, error)
-	Restore(context.Context, []byte) error
-}
-```
-
 See [`examples/weth`](examples/weth) for a complete example.
 
 ## How it works
