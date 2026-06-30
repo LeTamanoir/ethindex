@@ -92,22 +92,6 @@ The indexer keeps two checkpoints:
 
 This lets the indexer resume quickly while avoiding committing state that may still be affected by reorgs.
 
-## Configuration
-
-```go
-type Config struct {
-	MaxBlockRange  uint64
-	FinalityDepth uint64
-	MaxConcurrency int
-}
-```
-
-| Field            |  Default | Description                                      |
-| ---------------- | -------: | ------------------------------------------------ |
-| `MaxBlockRange`  | `10,000` | Maximum block span per backfill request          |
-| `FinalityDepth`  |     `64` | Blocks before a dangling checkpoint is finalized |
-| `MaxConcurrency` |     `16` | Maximum concurrent header fetches                |
-
 ## Development
 
 ```bash
