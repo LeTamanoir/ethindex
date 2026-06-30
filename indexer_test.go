@@ -152,7 +152,7 @@ func TestIndexer_Promote(t *testing.T) {
 		t.Errorf("expected dangling checkpoint to be moved away, got %d bytes", len(d))
 	}
 
-	if indexer.dangling != (BlockRef{}) {
+	if indexer.dangling != (blockRef{}) {
 		t.Errorf("expected dangling to be reset after promote, got %d", indexer.dangling.Number)
 	}
 }
@@ -187,8 +187,8 @@ func TestIndexer_PromoteGuardNoDangling(t *testing.T) {
 	// Simulate dangling being empty (e.g. after a restart that didn't
 	// restore it) while head is well past finalityDepth. The promote check
 	// must be a no-op, not a crash.
-	indexer.dangling = BlockRef{}
-	indexer.head = BlockRef{Number: 200, Hash: common.HexToHash("0xabc")}
+	indexer.dangling = blockRef{}
+	indexer.head = blockRef{Number: 200, Hash: common.HexToHash("0xabc")}
 
 	h201 := &types.Header{Number: big.NewInt(201), ParentHash: indexer.head.Hash}
 
@@ -199,7 +199,7 @@ func TestIndexer_PromoteGuardNoDangling(t *testing.T) {
 
 	// After processing, a new dangling checkpoint should have been saved
 	// (since dangling was empty), and no promote should have fired.
-	if indexer.dangling == (BlockRef{}) {
+	if indexer.dangling == (blockRef{}) {
 		t.Error("expected dangling to be set after processing with empty dangling")
 	}
 }
@@ -241,7 +241,7 @@ func TestIndexer_Reorg(t *testing.T) {
 
 	// Save a finalized checkpoint so Process can recover from a reorg.
 	cp := checkpoint{
-		Head:  BlockRef{Number: finalizedBlockNum, Hash: h10.Hash()},
+		Head:  blockRef{Number: finalizedBlockNum, Hash: h10.Hash()},
 		State: []byte("restored_state"),
 	}
 	cpb, err := cp.MarshalBinary()
@@ -289,7 +289,7 @@ func TestIndexer_Restore(t *testing.T) {
 	finalizedBlockNum := uint64(50)
 
 	cp := checkpoint{
-		Head:  BlockRef{Number: 50, Hash: common.HexToHash("0x123")},
+		Head:  blockRef{Number: 50, Hash: common.HexToHash("0x123")},
 		State: []byte("restored_state"),
 	}
 	cpb, err := cp.MarshalBinary()

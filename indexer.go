@@ -26,8 +26,8 @@ type Indexer struct {
 	maxConcurrent int
 
 	synced      bool
-	head        BlockRef
-	dangling    BlockRef   // head of the pending dangling checkpoint
+	head        blockRef
+	dangling    blockRef   // head of the pending dangling checkpoint
 	pendingSave chan error // delivers the pending dangling save result
 }
 
@@ -132,7 +132,7 @@ func (i *Indexer) sync(ctx context.Context) error {
 		"duration", time.Since(start))
 
 	from := i.f.FromBlock
-	if i.head != (BlockRef{}) {
+	if i.head != (blockRef{}) {
 		from = i.head.Number + 1
 	}
 	to := final.Number.Uint64()
@@ -147,7 +147,7 @@ func (i *Indexer) sync(ctx context.Context) error {
 		return fmt.Errorf("backfill: %w", err)
 	}
 
-	i.head = BlockRef{Number: to, Hash: final.Hash()}
+	i.head = blockRef{Number: to, Hash: final.Hash()}
 
 	snapSt := time.Now()
 	state, err := i.h.Snapshot(ctx)
@@ -221,8 +221,8 @@ func (i *Indexer) handleReorg(ctx context.Context, h *types.Header) error {
 		"expected_parent", i.head.Hash,
 		"got_parent", h.ParentHash)
 
-	i.head = BlockRef{}
-	i.dangling = BlockRef{}
+	i.head = blockRef{}
+	i.dangling = blockRef{}
 
 	cp, ok, err := loadCheckpoint(ctx, i.s, finalized)
 	if err != nil {
@@ -269,7 +269,7 @@ func (i *Indexer) processHead(ctx context.Context, h *types.Header) error {
 		return fmt.Errorf("process logs: %w", err)
 	}
 
-	i.head = BlockRef{Number: h.Number.Uint64(), Hash: h.Hash()}
+	i.head = blockRef{Number: h.Number.Uint64(), Hash: h.Hash()}
 
 	i.l.Debug("Processed new head",
 		"number", h.Number.Uint64(),
@@ -282,7 +282,7 @@ func (i *Indexer) processHead(ctx context.Context, h *types.Header) error {
 // checkpoint saves a dangling checkpoint if none is pending, then promotes the
 // dangling checkpoint to finalized once the head has aged past finalityDepth.
 func (i *Indexer) checkpoint(ctx context.Context) error {
-	if i.dangling == (BlockRef{}) {
+	if i.dangling == (blockRef{}) {
 		return i.saveDanglingAsync(ctx)
 	}
 
@@ -308,7 +308,7 @@ func (i *Indexer) promoteDangling(ctx context.Context) error {
 		"head", i.dangling.Number,
 		"duration", time.Since(start))
 
-	i.dangling = BlockRef{}
+	i.dangling = blockRef{}
 
 	return nil
 }

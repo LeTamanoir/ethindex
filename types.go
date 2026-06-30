@@ -9,8 +9,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
-// BlockRef is a (number, hash) pair identifying a block.
-type BlockRef struct {
+// blockRef is a (number, hash) pair identifying a block.
+type blockRef struct {
 	Number uint64
 	Hash   common.Hash
 }

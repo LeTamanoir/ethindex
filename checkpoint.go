@@ -18,7 +18,7 @@ const (
 )
 
 type checkpoint struct {
-	Head  BlockRef
+	Head  blockRef
 	State []byte
 }
 
