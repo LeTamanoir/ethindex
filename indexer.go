@@ -320,21 +320,21 @@ func (i *Indexer) logsRange(ctx context.Context, from, to uint64) ([]types.Log, 
 			return nil, fmt.Errorf("store read: %w", err)
 		}
 		if len(bin) > 0 {
-			var logs Logs
-			if err := logs.UnmarshalBinary(bin); err != nil {
+			var l logs
+			if err := l.UnmarshalBinary(bin); err != nil {
 				return nil, fmt.Errorf("unmarshal: %w", err)
 			}
-			return logs, nil
+			return l, nil
 		}
 	}
 
-	logs, err := i.c.FilterLogs(ctx, q)
+	l, err := i.c.FilterLogs(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("filter logs: %w", err)
 	}
 
 	{
-		bin, err := Logs(logs).MarshalBinary()
+		bin, err := logs(l).MarshalBinary()
 		if err != nil {
 			return nil, fmt.Errorf("marshal: %w", err)
 		}
@@ -343,7 +343,7 @@ func (i *Indexer) logsRange(ctx context.Context, from, to uint64) ([]types.Log, 
 		}
 	}
 
-	return logs, nil
+	return l, nil
 }
 
 // backfillFinalized fetches and processes logs over [from, to] in chunks.

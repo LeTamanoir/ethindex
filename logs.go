@@ -12,15 +12,15 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// Logs is a slice of Ethereum logs that supports binary marshaling.
-type Logs []types.Log
+// logs is a slice of Ethereum logs that supports binary marshaling.
+type logs []types.Log
 
 var errInvalidLogs = errors.New("invalid logs")
 
-var _ encoding.BinaryMarshaler = (*Logs)(nil)
-var _ encoding.BinaryUnmarshaler = (*Logs)(nil)
+var _ encoding.BinaryMarshaler = (*logs)(nil)
+var _ encoding.BinaryUnmarshaler = (*logs)(nil)
 
-func (ls Logs) MarshalBinary() ([]byte, error) {
+func (ls logs) MarshalBinary() ([]byte, error) {
 	size := 0
 	for _, l := range ls {
 		size += logSize(l)
@@ -36,14 +36,14 @@ func (ls Logs) MarshalBinary() ([]byte, error) {
 	return b, nil
 }
 
-func (ls *Logs) UnmarshalBinary(b []byte) error {
+func (ls *logs) UnmarshalBinary(b []byte) error {
 	if len(b) < 8 {
 		return errInvalidLogs
 	}
 	logsLen := int(binary.LittleEndian.Uint64(b[:8]))
 	b = b[8:]
 
-	*ls = make(Logs, logsLen)
+	*ls = make(logs, logsLen)
 
 	var err error
 	for i := range *ls {
