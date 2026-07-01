@@ -1,4 +1,4 @@
-package ethindex
+package ethindexer
 
 type blockRange struct {
 	from uint64

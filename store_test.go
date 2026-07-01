@@ -1,4 +1,4 @@
-package ethindex
+package ethindexer
 
 import (
 	"os"
@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestFileStore_SaveLoad(t *testing.T) {
+func TestFileStore_WriteRead(t *testing.T) {
 	dir := t.TempDir()
 	store, err := NewFileStore(dir)
 	if err != nil {
@@ -30,7 +30,7 @@ func TestFileStore_SaveLoad(t *testing.T) {
 	}
 }
 
-func TestFileStore_LoadNotFound(t *testing.T) {
+func TestFileStore_ReadNotFound(t *testing.T) {
 	dir := t.TempDir()
 	store, err := NewFileStore(dir)
 	if err != nil {

@@ -1,4 +1,4 @@
-package ethindex
+package ethindexer
 
 import (
 	"context"
@@ -38,7 +38,7 @@ func TestIndexer_Backfill(t *testing.T) {
 	filter := Filter{FromBlock: 50}
 	handler := &mockHandler{}
 
-	indexer := NewIndexer(client, handler, filter, newMockStore(), testLogger(), Config{})
+	indexer := NewIndexer(client, handler, filter, newMockStore(), nil)
 	if err := indexer.Sync(ctx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestIndexer_Live(t *testing.T) {
 	filter := Filter{FromBlock: 10}
 	handler := &mockHandler{}
 
-	indexer := NewIndexer(client, handler, filter, newMockStore(), testLogger(), Config{})
+	indexer := NewIndexer(client, handler, filter, newMockStore(), nil)
 	if err := indexer.Sync(ctx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestIndexer_Promote(t *testing.T) {
 	handler := &mockHandler{}
 	store := newMockStore()
 
-	indexer := NewIndexer(client, handler, filter, store, testLogger(), Config{FinalityDepth: 2})
+	indexer := NewIndexer(client, handler, filter, store, &Config{FinalityDepth: 2})
 	if err := indexer.Sync(ctx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -134,26 +134,30 @@ func TestIndexer_Promote(t *testing.T) {
 
 	// Head 13 >= dangling(11) + finalityDepth(2), so the dangling checkpoint
 	// at head 11 should have been promoted to finalized via Move.
-	cp, ok, err := loadCheckpoint(ctx, store, finalized)
+	cpb, err := store.Read(ctx, checkpointKey)
 	if err != nil {
 		t.Fatalf("load finalized: %v", err)
 	}
-	if !ok {
+	if len(cpb) == 0 {
 		t.Fatal("expected finalized checkpoint after promote")
 	}
-	if cp.Head.Number != 11 {
-		t.Errorf("expected finalized head 11 after promote, got %d", cp.Head.Number)
+	var cp checkpoint
+	if cp.UnmarshalBinary(cpb) != nil {
+		t.Fatal("expected valid checkpoint")
+	}
+	if cp.head.Number != 11 {
+		t.Errorf("expected finalized head 11 after promote, got %d", cp.head.Number)
 	}
 
 	// The dangling key should be gone after the move.
-	if d, err := store.Read(ctx, string(dangling)); err != nil {
-		t.Fatalf("unexpected error loading dangling: %v", err)
+	if d, err := store.Read(ctx, checkpointStagedKey); err != nil {
+		t.Fatalf("unexpected error loading staged: %v", err)
 	} else if d != nil {
-		t.Errorf("expected dangling checkpoint to be moved away, got %d bytes", len(d))
+		t.Errorf("expected staged checkpoint to be moved away, got %d bytes", len(d))
 	}
 
-	if indexer.dangling != (blockRef{}) {
-		t.Errorf("expected dangling to be reset after promote, got %d", indexer.dangling.Number)
+	if indexer.staged != nil {
+		t.Errorf("expected staged to be reset after promote, got %d", indexer.staged.Number)
 	}
 }
 
@@ -187,7 +191,7 @@ func TestIndexer_PromoteGuardNoDangling(t *testing.T) {
 	// Simulate dangling being empty (e.g. after a restart that didn't
 	// restore it) while head is well past finalityDepth. The promote check
 	// must be a no-op, not a crash.
-	indexer.dangling = blockRef{}
+	indexer.staged = blockRef{}
 	indexer.head = blockRef{Number: 200, Hash: common.HexToHash("0xabc")}
 
 	h201 := &types.Header{Number: big.NewInt(201), ParentHash: indexer.head.Hash}
@@ -199,7 +203,7 @@ func TestIndexer_PromoteGuardNoDangling(t *testing.T) {
 
 	// After processing, a new dangling checkpoint should have been saved
 	// (since dangling was empty), and no promote should have fired.
-	if indexer.dangling == (blockRef{}) {
+	if indexer.staged == (blockRef{}) {
 		t.Error("expected dangling to be set after processing with empty dangling")
 	}
 }
@@ -241,8 +245,8 @@ func TestIndexer_Reorg(t *testing.T) {
 
 	// Save a finalized checkpoint so Process can recover from a reorg.
 	cp := checkpoint{
-		Head:  blockRef{Number: finalizedBlockNum, Hash: h10.Hash()},
-		State: []byte("restored_state"),
+		head:  blockRef{Number: finalizedBlockNum, Hash: h10.Hash()},
+		state: []byte("restored_state"),
 	}
 	cpb, err := cp.MarshalBinary()
 	if err != nil {
@@ -289,8 +293,8 @@ func TestIndexer_Restore(t *testing.T) {
 	finalizedBlockNum := uint64(50)
 
 	cp := checkpoint{
-		Head:  blockRef{Number: 50, Hash: common.HexToHash("0x123")},
-		State: []byte("restored_state"),
+		head:  blockRef{Number: 50, Hash: common.HexToHash("0x123")},
+		state: []byte("restored_state"),
 	}
 	cpb, err := cp.MarshalBinary()
 	if err != nil {

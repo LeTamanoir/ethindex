@@ -1,20 +1,14 @@
-package ethindex
+package ethindexer
 
 import (
 	"context"
 	"fmt"
-	"io"
-	"log/slog"
 	"math/big"
 	"sync"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/core/types"
 )
-
-func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
-}
 
 type mockClient struct {
 	headerByNumberFunc func(ctx context.Context, number *big.Int) (*types.Header, error)

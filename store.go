@@ -1,4 +1,4 @@
-package ethindex
+package ethindexer
 
 import (
 	"compress/gzip"

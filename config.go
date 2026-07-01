@@ -1,31 +1,39 @@
-package ethindex
+package ethindexer
 
-// Config holds the indexer's configuration.
-type Config struct {
-	// MaxBlockRange is the maximum block span per backfill request.
-	// Defaults to 10,000.
-	MaxBlockRange uint64
+// Options configures an Indexer.
+type Options struct {
+	// Client provides access to Ethereum logs and block headers.
+	Client ChainReader
 
-	// FinalityDepth is the block depth considered finalized.
-	// Defaults to 64.
-	FinalityDepth uint64
+	// Handler receives logs and owns the indexed state.
+	Handler Handler
 
-	// MaxConcurrency bounds concurrent header fetches.
-	// Defaults to 16.
-	MaxConcurrency int
+	// Filter specifies which logs the indexer fetches.
+	Filter Filter
+
+	// Store persists checkpoints and cached log batches.
+	Store BlobStore
 
 	// LogFunc receives indexer log events.
 	LogFunc func(msg string, args ...any)
+
+	Config *Config
 }
 
-func (c *Config) applyDefaults() {
-	if c.FinalityDepth == 0 {
-		c.FinalityDepth = 64
-	}
-	if c.MaxBlockRange == 0 {
-		c.MaxBlockRange = 10_000
-	}
-	if c.MaxConcurrency == 0 {
-		c.MaxConcurrency = 16
-	}
+// Config holds the indexer's tunables.
+type Config struct {
+	// MaxBlockRange is the maximum block span per backfill request.
+	MaxBlockRange uint64
+
+	// FinalityDepth is the block depth considered finalized.
+	FinalityDepth uint64
+
+	// MaxConcurrency bounds concurrent header fetches.
+	MaxConcurrency int
+}
+
+var DefaultConfig = Config{
+	MaxBlockRange:  10_000,
+	FinalityDepth:  64,
+	MaxConcurrency: 16,
 }
