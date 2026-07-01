@@ -1,16 +1,16 @@
-# ethindex
+# ethindexer
 
-[![CI](https://github.com/letamanoir/ethindex/actions/workflows/ci.yml/badge.svg)](https://github.com/letamanoir/ethindex/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/letamanoir/ethindex.svg)](https://pkg.go.dev/github.com/letamanoir/ethindex)
+[![CI](https://github.com/letamanoir/ethindexer/actions/workflows/ci.yml/badge.svg)](https://github.com/letamanoir/ethindexer/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/letamanoir/ethindexer.svg)](https://pkg.go.dev/github.com/letamanoir/ethindexer)
 
-`ethindex` is a lightweight Go library for indexing Ethereum logs.
+`ethindexer` is a lightweight Go library for indexing Ethereum logs.
 
 It handles backfilling, live indexing, checkpointing, reorg recovery, and resumable restarts so handlers only need to implement application-specific indexing logic.
 
 ## Install
 
 ```bash
-go get github.com/letamanoir/ethindex
+go get github.com/letamanoir/ethindexer
 ```
 
 ## Usage
@@ -24,16 +24,16 @@ See [`examples/weth`](examples/weth) for a complete example.
 `Process` ingests new heads after `Sync` returns. Each header is checked against the current head. If a gap is detected, the indexer fills it. If a parent hash mismatch is detected, the indexer restores the finalized checkpoint and replays the canonical chain.
 
 ```text
-Start block               Finalized block          Dangling     Latest
+Start block               Finalized block           Staged      Latest
      |                          |                     |           |
-     S --------[...]----------- F ------------------- D --------- L
+     S --------[...]----------- F ------------------- S --------- L
                                   <- FinalityDepth ->
 ```
 
 The indexer keeps two checkpoints:
 
 * **Finalized (`F`)**: durable restart point.
-* **Dangling (`D`)**: pending checkpoint promoted once it is old enough.
+* **Staged (`S`)**: pending checkpoint promoted once it is old enough.
 
 This lets the indexer resume quickly while avoiding committing state that may still be affected by reorgs.
 

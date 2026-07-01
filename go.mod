@@ -1,4 +1,4 @@
-module github.com/letamanoir/ethindex
+module github.com/letamanoir/ethindexer
 
 go 1.24.0
 

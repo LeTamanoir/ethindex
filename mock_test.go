@@ -1,20 +1,14 @@
-package ethindex
+package ethindexer
 
 import (
 	"context"
-	"fmt"
-	"io"
-	"log/slog"
+	"errors"
 	"math/big"
 	"sync"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/core/types"
 )
-
-func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
-}
 
 type mockClient struct {
 	headerByNumberFunc func(ctx context.Context, number *big.Int) (*types.Header, error)
@@ -36,12 +30,19 @@ func (m *mockClient) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]
 }
 
 type mockHandler struct {
+	filter      Filter
 	mu          sync.Mutex
 	processed   []types.Log
 	state       []byte
 	processErr  error
 	snapshotErr error
 	restoreErr  error
+}
+
+func (m *mockHandler) Filter() Filter {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.filter
 }
 
 func (m *mockHandler) Snapshot(context.Context) ([]byte, error) {
@@ -100,7 +101,7 @@ func (m *mockStore) Move(_ context.Context, srcKey, dstKey string) error {
 	defer m.mu.Unlock()
 	val, ok := m.store[srcKey]
 	if !ok {
-		return fmt.Errorf("move %q: not found", srcKey)
+		return errors.New("source key not found")
 	}
 	m.store[dstKey] = val
 	delete(m.store, srcKey)

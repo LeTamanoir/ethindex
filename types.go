@@ -1,4 +1,4 @@
-package ethindex
+package ethindexer
 
 import (
 	"context"
@@ -17,6 +17,9 @@ type blockRef struct {
 
 // Handler defines the application-specific indexing logic.
 type Handler interface {
+	// Filter specifies which logs the indexer fetches.
+	Filter() Filter
+
 	// Snapshot returns the current handler state.
 	Snapshot(context.Context) ([]byte, error)
 
@@ -27,22 +30,14 @@ type Handler interface {
 	Process(context.Context, []types.Log) error
 }
 
-// Client provides access to Ethereum logs and block headers.
-type Client interface {
+// ChainReader provides access to Ethereum logs and block headers.
+type ChainReader interface {
 	FilterLogs(context.Context, ethereum.FilterQuery) ([]types.Log, error)
 	HeaderByNumber(context.Context, *big.Int) (*types.Header, error)
 }
 
-// Logger records operational messages.
-type Logger interface {
-	Debug(msg string, args ...any)
-	Info(msg string, args ...any)
-	Warn(msg string, args ...any)
-	Error(msg string, args ...any)
-}
-
-// Store provides keyed byte storage.
-type Store interface {
+// BlobStore provides keyed byte storage.
+type BlobStore interface {
 	// Read returns the data stored under key. A missing key returns (nil, nil).
 	Read(ctx context.Context, key string) ([]byte, error)
 
