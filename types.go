@@ -17,6 +17,9 @@ type blockRef struct {
 
 // Handler defines the application-specific indexing logic.
 type Handler interface {
+	// Filter specifies which logs the indexer fetches.
+	Filter() Filter
+
 	// Snapshot returns the current handler state.
 	Snapshot(context.Context) ([]byte, error)
 

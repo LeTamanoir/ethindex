@@ -6,6 +6,9 @@ type blockRange struct {
 }
 
 func chunkBlockRange(from, to, size uint64) []blockRange {
+	if size == 0 {
+		panic("invalid block range size: 0")
+	}
 	var chunks []blockRange
 	for start := from; start <= to; start += size {
 		end := min(start+size-1, to)

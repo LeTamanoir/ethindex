@@ -20,7 +20,6 @@ const (
 type Indexer struct {
 	c ChainReader
 	h Handler
-	f Filter
 	s BlobStore
 
 	log func(msg string, args ...any)
@@ -32,15 +31,15 @@ type Indexer struct {
 
 // NewIndexer returns an unsynced Indexer.
 func NewIndexer(o Options) *Indexer {
-	cfg := DefaultConfig
-	if o.Config != nil {
-		cfg = *o.Config
+	o.Config.applyDefaults()
+	if o.Client == nil || o.Handler == nil || o.Store == nil {
+		panic("client, handler and store can't be nil")
 	}
 	log := func(msg string, args ...any) {}
 	if o.LogFunc != nil {
 		log = o.LogFunc
 	}
-	return &Indexer{c: o.Client, h: o.Handler, f: o.Filter, s: o.Store, log: log, cfg: &cfg}
+	return &Indexer{c: o.Client, h: o.Handler, s: o.Store, log: log, cfg: &o.Config}
 }
 
 // Open returns an Indexer synced to the finalized head.
@@ -64,7 +63,6 @@ func (i *Indexer) Sync(ctx context.Context) error {
 	}
 
 	i.log("Syncing indexer",
-		"from_block", i.f.FromBlock,
 		"finality_depth", i.cfg.FinalityDepth,
 		"max_block_range", i.cfg.MaxBlockRange,
 		"max_concurent", i.cfg.MaxConcurrency)
@@ -118,7 +116,7 @@ func (i *Indexer) syncFinalized(ctx context.Context) error {
 		return err
 	}
 
-	from := i.f.FromBlock
+	from := i.h.Filter().FromBlock
 	if i.head != nil {
 		from = i.head.Number + 1
 	}
@@ -214,7 +212,7 @@ func (i *Indexer) restoreFinalized(ctx context.Context) (bool, error) {
 
 // processHead handles a new header and assumes it is strictly consecutive to idx.head.
 func (i *Indexer) processHead(ctx context.Context, h *types.Header) error {
-	logs, err := i.c.FilterLogs(ctx, i.f.blockQuery(h.Hash()))
+	logs, err := i.c.FilterLogs(ctx, i.h.Filter().blockQuery(h.Hash()))
 	if err != nil {
 		return fmt.Errorf("filter logs: %w", err)
 	}
@@ -311,7 +309,7 @@ func (i *Indexer) headersRange(ctx context.Context, from, to uint64) ([]*types.H
 
 // logsRange returns logs for [from, to], caching fetched results.
 func (i *Indexer) logsRange(ctx context.Context, from, to uint64) ([]types.Log, error) {
-	q := i.f.rangeQuery(from, to)
+	q := i.h.Filter().rangeQuery(from, to)
 
 	{
 		bin, err := i.s.Read(ctx, logsKey(q))

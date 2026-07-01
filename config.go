@@ -8,16 +8,13 @@ type Options struct {
 	// Handler receives logs and owns the indexed state.
 	Handler Handler
 
-	// Filter specifies which logs the indexer fetches.
-	Filter Filter
-
 	// Store persists checkpoints and cached log batches.
 	Store BlobStore
 
 	// LogFunc receives indexer log events.
 	LogFunc func(msg string, args ...any)
 
-	Config *Config
+	Config Config
 }
 
 // Config holds the indexer's tunables.
@@ -32,8 +29,14 @@ type Config struct {
 	MaxConcurrency int
 }
 
-var DefaultConfig = Config{
-	MaxBlockRange:  10_000,
-	FinalityDepth:  64,
-	MaxConcurrency: 16,
+func (c *Config) applyDefaults() {
+	if c.MaxBlockRange == 0 {
+		c.MaxBlockRange = 10_000
+	}
+	if c.FinalityDepth == 0 {
+		c.FinalityDepth = 64
+	}
+	if c.MaxConcurrency == 0 {
+		c.MaxConcurrency = 16
+	}
 }

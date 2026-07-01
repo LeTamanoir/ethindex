@@ -73,11 +73,5 @@ func (s *FileStore) Write(_ context.Context, key string, data []byte) error {
 }
 
 func (s *FileStore) Move(_ context.Context, srcKey, dstKey string) error {
-	if err := os.Rename(s.path(srcKey), s.path(dstKey)); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("move %q: %w", srcKey, err)
-		}
-		return fmt.Errorf("move %q to %q: %w", srcKey, dstKey, err)
-	}
-	return nil
+	return os.Rename(s.path(srcKey), s.path(dstKey))
 }

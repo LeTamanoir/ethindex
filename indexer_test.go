@@ -36,9 +36,9 @@ func TestIndexer_Backfill(t *testing.T) {
 	}
 
 	filter := Filter{FromBlock: 50}
-	handler := &mockHandler{}
+	handler := &mockHandler{filter: filter}
 
-	indexer := NewIndexer(client, handler, filter, newMockStore(), nil)
+	indexer := NewIndexer(Options{client, handler, newMockStore(), nil, Config{}})
 	if err := indexer.Sync(ctx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -73,9 +73,9 @@ func TestIndexer_Live(t *testing.T) {
 	}
 
 	filter := Filter{FromBlock: 10}
-	handler := &mockHandler{}
+	handler := &mockHandler{filter: filter}
 
-	indexer := NewIndexer(client, handler, filter, newMockStore(), nil)
+	indexer := NewIndexer(Options{client, handler, newMockStore(), nil, Config{}})
 	if err := indexer.Sync(ctx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -113,10 +113,10 @@ func TestIndexer_Promote(t *testing.T) {
 	}
 
 	filter := Filter{FromBlock: 10}
-	handler := &mockHandler{}
+	handler := &mockHandler{filter: filter}
 	store := newMockStore()
 
-	indexer := NewIndexer(client, handler, filter, store, &Config{FinalityDepth: 2})
+	indexer := NewIndexer(Options{client, handler, store, nil, Config{FinalityDepth: 2}})
 	if err := indexer.Sync(ctx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestIndexer_Promote(t *testing.T) {
 		}
 	}
 
-	// Head 13 >= dangling(11) + finalityDepth(2), so the dangling checkpoint
+	// Head 13 >= staged(11) + finalityDepth(2), so the staged checkpoint
 	// at head 11 should have been promoted to finalized via Move.
 	cpb, err := store.Read(ctx, checkpointKey)
 	if err != nil {
@@ -149,7 +149,7 @@ func TestIndexer_Promote(t *testing.T) {
 		t.Errorf("expected finalized head 11 after promote, got %d", cp.head.Number)
 	}
 
-	// The dangling key should be gone after the move.
+	// The staged key should be gone after the move.
 	if d, err := store.Read(ctx, checkpointStagedKey); err != nil {
 		t.Fatalf("unexpected error loading staged: %v", err)
 	} else if d != nil {
@@ -161,9 +161,9 @@ func TestIndexer_Promote(t *testing.T) {
 	}
 }
 
-// TestIndexer_PromoteGuardNoDangling verifies that the promote check does
-// not fire when idx.dangling is zero, even if head.Number >= finalityDepth.
-func TestIndexer_PromoteGuardNoDangling(t *testing.T) {
+// TestIndexer_PromoteGuardNoStaged verifies that the promote check does
+// not fire when idx.staged is zero, even if head.Number >= finalityDepth.
+func TestIndexer_PromoteGuardNoStaged(t *testing.T) {
 	ctx := t.Context()
 
 	finalizedBlockNum := uint64(100)
@@ -180,31 +180,31 @@ func TestIndexer_PromoteGuardNoDangling(t *testing.T) {
 	}
 
 	filter := Filter{FromBlock: 100}
-	handler := &mockHandler{}
+	handler := &mockHandler{filter: filter}
 	store := newMockStore()
 
-	indexer := NewIndexer(client, handler, filter, store, testLogger(), Config{FinalityDepth: 2})
+	indexer := NewIndexer(Options{client, handler, store, nil, Config{FinalityDepth: 2}})
 	if err := indexer.Sync(ctx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Simulate dangling being empty (e.g. after a restart that didn't
+	// Simulate staged being empty (e.g. after a restart that didn't
 	// restore it) while head is well past finalityDepth. The promote check
 	// must be a no-op, not a crash.
-	indexer.staged = blockRef{}
-	indexer.head = blockRef{Number: 200, Hash: common.HexToHash("0xabc")}
+	indexer.staged = nil
+	indexer.head = &blockRef{Number: 200, Hash: common.HexToHash("0xabc")}
 
 	h201 := &types.Header{Number: big.NewInt(201), ParentHash: indexer.head.Hash}
 
-	// This should NOT crash with "dangling checkpoint missing from store".
+	// This should NOT crash with "staged checkpoint missing from store".
 	if err := indexer.Process(ctx, h201); err != nil {
 		t.Fatalf("unexpected error from promote guard: %v", err)
 	}
 
-	// After processing, a new dangling checkpoint should have been saved
-	// (since dangling was empty), and no promote should have fired.
-	if indexer.staged == (blockRef{}) {
-		t.Error("expected dangling to be set after processing with empty dangling")
+	// After processing, a new staged checkpoint should have been saved
+	// (since staged was empty), and no promote should have fired.
+	if indexer.staged == nil {
+		t.Error("expected staged to be set after processing with empty staged")
 	}
 }
 
@@ -239,7 +239,7 @@ func TestIndexer_Reorg(t *testing.T) {
 	}
 
 	filter := Filter{FromBlock: 10}
-	handler := &mockHandler{}
+	handler := &mockHandler{filter: filter}
 
 	store := newMockStore()
 
@@ -252,11 +252,11 @@ func TestIndexer_Reorg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Write(t.Context(), string(finalized), cpb); err != nil {
+	if err := store.Write(t.Context(), checkpointKey, cpb); err != nil {
 		t.Fatal(err)
 	}
 
-	indexer := NewIndexer(client, handler, filter, store, testLogger(), Config{})
+	indexer := NewIndexer(Options{client, handler, store, nil, Config{}})
 	if err := indexer.Sync(ctx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -302,7 +302,7 @@ func TestIndexer_Restore(t *testing.T) {
 	}
 
 	store := newMockStore()
-	store.Write(t.Context(), string(finalized), cpb)
+	store.Write(t.Context(), checkpointKey, cpb)
 
 	client := &mockClient{
 		headerByNumberFunc: func(ctx context.Context, number *big.Int) (*types.Header, error) {
@@ -316,9 +316,9 @@ func TestIndexer_Restore(t *testing.T) {
 	}
 
 	filter := Filter{FromBlock: 10}
-	handler := &mockHandler{}
+	handler := &mockHandler{filter: filter}
 
-	indexer := NewIndexer(client, handler, filter, store, testLogger(), Config{})
+	indexer := NewIndexer(Options{client, handler, store, nil, Config{}})
 	if err := indexer.Sync(ctx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
