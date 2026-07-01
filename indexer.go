@@ -140,7 +140,7 @@ func (i *Indexer) syncFinalized(ctx context.Context) error {
 	i.head = &blockRef{Number: to, Hash: final.Hash()}
 
 	if err := i.stageCheckpoint(ctx); err != nil {
-		return fmt.Errorf("save checkpoint: %w", err)
+		return fmt.Errorf("stage checkpoint: %w", err)
 	}
 	if err := i.promoteCheckpoint(ctx); err != nil {
 		return fmt.Errorf("promote checkpoint: %w", err)
@@ -274,7 +274,7 @@ func (i *Indexer) stageCheckpoint(ctx context.Context) error {
 	}
 
 	if err := i.s.Write(ctx, checkpointStagedKey, bin); err != nil {
-		return fmt.Errorf("store save: %w", err)
+		return fmt.Errorf("store write: %w", err)
 	}
 
 	i.log("Staged checkpoint", "head", cp.head.Number)
@@ -341,7 +341,7 @@ func (i *Indexer) logsRange(ctx context.Context, from, to uint64) ([]types.Log, 
 			return nil, fmt.Errorf("marshal: %w", err)
 		}
 		if err := i.s.Write(ctx, logsKey(q), bin); err != nil {
-			return nil, fmt.Errorf("store save: %w", err)
+			return nil, fmt.Errorf("store write: %w", err)
 		}
 	}
 
