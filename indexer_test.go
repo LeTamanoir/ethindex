@@ -141,8 +141,8 @@ func TestIndexer_Promote(t *testing.T) {
 	if len(cpb) == 0 {
 		t.Fatal("expected finalized checkpoint after promote")
 	}
-	var cp checkpoint
-	if cp.UnmarshalBinary(cpb) != nil {
+	cp, err := unmarshalCheckpoint(cpb)
+	if err != nil {
 		t.Fatal("expected valid checkpoint")
 	}
 	if cp.head.Number != 11 {
@@ -248,7 +248,7 @@ func TestIndexer_Reorg(t *testing.T) {
 		head:  blockRef{Number: finalizedBlockNum, Hash: h10.Hash()},
 		state: []byte("restored_state"),
 	}
-	cpb, err := cp.MarshalBinary()
+	cpb, err := marshalCheckpoint(cp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestIndexer_Restore(t *testing.T) {
 		head:  blockRef{Number: 50, Hash: common.HexToHash("0x123")},
 		state: []byte("restored_state"),
 	}
-	cpb, err := cp.MarshalBinary()
+	cpb, err := marshalCheckpoint(cp)
 	if err != nil {
 		t.Fatal(err)
 	}

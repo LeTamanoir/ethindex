@@ -9,6 +9,12 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
+// checkpoint stores handler state at a specific chain head.
+type checkpoint struct {
+	head  blockRef
+	state []byte
+}
+
 // blockRef is a (number, hash) pair identifying a block.
 type blockRef struct {
 	Number uint64

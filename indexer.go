@@ -198,8 +198,8 @@ func (i *Indexer) restoreFinalized(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 
-	var cp checkpoint
-	if err := cp.UnmarshalBinary(bin); err != nil {
+	cp, err := unmarshalCheckpoint(bin)
+	if err != nil {
 		return false, fmt.Errorf("unmarshal: %w", err)
 	}
 
@@ -268,7 +268,7 @@ func (i *Indexer) stageCheckpoint(ctx context.Context) error {
 	h := *i.head
 	cp := checkpoint{h, state}
 
-	bin, err := cp.MarshalBinary()
+	bin, err := marshalCheckpoint(cp)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}
@@ -322,21 +322,21 @@ func (i *Indexer) logsRange(ctx context.Context, from, to uint64) ([]types.Log, 
 			return nil, fmt.Errorf("store read: %w", err)
 		}
 		if len(bin) > 0 {
-			var l logs
-			if err := l.UnmarshalBinary(bin); err != nil {
+			logs, err := unmarshalLogs(bin)
+			if err != nil {
 				return nil, fmt.Errorf("unmarshal: %w", err)
 			}
-			return l, nil
+			return logs, nil
 		}
 	}
 
-	l, err := i.c.FilterLogs(ctx, q)
+	logs, err := i.c.FilterLogs(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("filter logs: %w", err)
 	}
 
 	{
-		bin, err := logs(l).MarshalBinary()
+		bin, err := marshalLogs(logs)
 		if err != nil {
 			return nil, fmt.Errorf("marshal: %w", err)
 		}
@@ -345,7 +345,7 @@ func (i *Indexer) logsRange(ctx context.Context, from, to uint64) ([]types.Log, 
 		}
 	}
 
-	return l, nil
+	return logs, nil
 }
 
 // backfillFinalized fetches and processes logs over [from, to] in chunks.
