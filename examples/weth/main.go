@@ -20,21 +20,15 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 	"github.com/joho/godotenv"
-	"github.com/letamanoir/ethindex"
-	"github.com/letamanoir/ethindex/examples/contracts"
+	"github.com/letamanoir/ethindexer"
 )
 
 var (
-	erc20ABI, _ = contracts.ERC20MetaData.ParseABI()
+	// cast sig-event "Transfer(address indexed,address indexed,uint256)"
+	transferEventID = common.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
 
-	transferEventID = erc20ABI.Events["Transfer"].ID
-	approvalEventID = erc20ABI.Events["Approval"].ID
-
-	wethFilter = ethindex.Filter{
-		FromBlock: 4719568,
-		Addresses: []common.Address{common.HexToAddress("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2")},
-		Topics:    [][]common.Hash{{transferEventID, approvalEventID}},
-	}
+	// cast sig-event "Approval(address indexed,address indexed,uint256)"
+	approvalEventID = common.HexToHash("0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925")
 )
 
 type WETH struct {
@@ -46,6 +40,14 @@ func NewWETH() *WETH {
 	return &WETH{
 		Balances:   make(map[common.Address]uint256.Int),
 		Allowances: make(map[common.Address]map[common.Address]uint256.Int),
+	}
+}
+
+func (e *WETH) Filter() ethindexer.Filter {
+	return ethindexer.Filter{
+		FromBlock: 4719568,
+		Addresses: []common.Address{common.HexToAddress("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2")},
+		Topics:    [][]common.Hash{{transferEventID, approvalEventID}},
 	}
 }
 
@@ -145,16 +147,21 @@ func run() error {
 		return err
 	}
 
-	store, err := ethindex.NewFileStore(".weth_indexer")
+	store, err := ethindexer.NewFileStore(".weth_indexer")
 	if err != nil {
 		return fmt.Errorf("new store: %w", err)
 	}
 
 	handler := NewWETH()
 
-	idx := ethindex.NewIndexer(httpC, handler, wethFilter, store, slog.Default(), ethindex.Config{})
-	if err := idx.Sync(ctx); err != nil {
-		return fmt.Errorf("sync indexer: %w", err)
+	idx, err := ethindexer.OpenContext(ctx, ethindexer.Options{
+		Client:  httpC,
+		Handler: handler,
+		Store:   store,
+		LogFunc: slog.Default().Info,
+	})
+	if err != nil {
+		return fmt.Errorf("open indexer: %w", err)
 	}
 
 	heads := make(chan *types.Header, 128)
@@ -171,6 +178,8 @@ func run() error {
 			if err := idx.Process(ctx, h); err != nil {
 				return fmt.Errorf("process head %d: %w", h.Number, err)
 			}
+
+			// Do whatever you want with handler state
 		}
 	}
 }

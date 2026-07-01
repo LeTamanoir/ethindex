@@ -23,7 +23,7 @@ type Indexer struct {
 	s BlobStore
 
 	log func(msg string, args ...any)
-	cfg *Config
+	cfg Config
 
 	head   *blockRef // head of the last indexed block
 	staged *blockRef // head of the staged checkpoint
@@ -31,15 +31,18 @@ type Indexer struct {
 
 // NewIndexer returns an unsynced Indexer.
 func NewIndexer(o Options) *Indexer {
-	o.Config.applyDefaults()
 	if o.Client == nil || o.Handler == nil || o.Store == nil {
-		panic("client, handler and store can't be nil")
+		panic("nil client, handler, or store")
 	}
+
+	o.Config.applyDefaults()
+
 	log := func(msg string, args ...any) {}
 	if o.LogFunc != nil {
 		log = o.LogFunc
 	}
-	return &Indexer{c: o.Client, h: o.Handler, s: o.Store, log: log, cfg: &o.Config}
+
+	return &Indexer{c: o.Client, h: o.Handler, s: o.Store, log: log, cfg: o.Config}
 }
 
 // Open returns an Indexer synced to the finalized head.
